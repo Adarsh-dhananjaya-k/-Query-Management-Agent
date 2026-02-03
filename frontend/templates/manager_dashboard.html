@@ -201,6 +201,9 @@
         <p class="text-secondary mb-0 mt-2">Overview of tickets and invoices across your teams</p>
     </div>
     <div class="header-actions">
+        <a href="{{ url_for('process_tickets') }}" class="btn btn-outline-primary">
+            <i class="fas fa-robot me-2"></i>Run AI Agent
+        </a>
         <a href="{{ url_for('chat_home') }}" class="btn btn-primary">
             <i class="fas fa-comments me-2"></i>Chat
         </a>

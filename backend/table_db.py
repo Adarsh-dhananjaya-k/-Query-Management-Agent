@@ -102,10 +102,8 @@ def ensure_required_columns(df):
     """
     if "Ticket Updated Date" not in df.columns:
         df["Ticket Updated Date"] = pd.NA
-    if "Auto Resolved" not in df.columns:
-        df["Auto Resolved"] = False
-    if "Solved" not in df.columns:
-        df["Solved"] = False
+    if "Auto Solved" not in df.columns:
+        df["Auto Solved"] = False
     if "AI Response" not in df.columns:
         df["AI Response"] = ""
     return df
@@ -145,7 +143,8 @@ def update_multiple_fields(ticket_id: str, updates: dict) -> bool:
         df = get_all_tickets_df()
         df = ensure_required_columns(df)
         search_id = str(ticket_id).strip()
-        mask = df["Ticket ID"] == search_id
+        # Robust comparison: handle string IDs and numerical IDs from Excel
+        mask = df["Ticket ID"].astype(str).str.strip() == search_id
         
         if not mask.any():
             return False

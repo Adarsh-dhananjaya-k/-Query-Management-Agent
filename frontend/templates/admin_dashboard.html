@@ -174,13 +174,21 @@
                             placeholder="Set a secure password">
                     </div>
 
-                    <div class="mb-4">
+                    <div class="mb-3">
                         <label class="form-label">Role</label>
                         <select name="role" class="form-select" required>
                             <option value="">Select a role...</option>
+                            <option value="admin">Admin</option>
                             <option value="manager">Manager</option>
                             <option value="employee">Employee</option>
                         </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">Team(s)</label>
+                        <input type="text" name="team" class="form-control" required
+                            placeholder="e.g. AP (Admins: AP, AR)">
+                        <small class="text-muted">Separate multiple teams with commas for Admins.</small>
                     </div>
 
                     <button type="submit" class="btn btn-primary w-100">

@@ -1,6 +1,7 @@
 # app.py
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
 from table_db import get_all_tickets_df, get_invoices_df
+from agents.ticket_agent import TicketAIAgent
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -70,7 +71,8 @@ def login():
             session["user"] = {
                 "email": user["email"],
                 "name": user["name"],
-                "role": user["role"]
+                "role": user["role"],
+                "team": user.get("team")
             }
             flash("Login successful!", "success")
             return redirect(url_for("role_home"))
@@ -150,6 +152,19 @@ def new_session():
     return redirect(url_for("chat_home"))
 
 
+@app.route("/process_tickets")
+def process_tickets():
+    if session.get("user", {}).get("role") not in ["admin", "manager"]:
+        flash("Access denied.", "danger")
+        return redirect(url_for("role_home"))
+    
+    agent = TicketAIAgent()
+    results = agent.run_on_all_open_tickets()
+    
+    flash(f"AI Agent finished processing {len(results)} tickets.", "success")
+    return redirect(url_for("dashboard"))
+
+
 # ────────────────────────────────────────────────
 # Admin Dashboard – Add User (no team)
 # ────────────────────────────────────────────────
@@ -169,17 +184,25 @@ def admin_dashboard():
             password = request.form.get("password", "").strip()
             name = request.form.get("name", "").strip()
             role = request.form.get("role", "")
+            team = request.form.get("team", "").strip()
 
-            if not all([email, password, name, role]):
+            if not all([email, password, name, role, team]):
                 flash("All fields are required.", "danger")
             elif any(u["email"] == email for u in users):
                 flash("Email already exists.", "danger")
             else:
+                # Handle team as list for admins, string for others
+                if role == "admin":
+                    team_val = [t.strip() for t in team.split(",") if t.strip()]
+                else:
+                    team_val = team
+
                 new_user = {
                     "email": email,
                     "password": password,
                     "name": name,
-                    "role": role
+                    "role": role,
+                    "team": team_val
                 }
 
                 users.append(new_user)

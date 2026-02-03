@@ -3,24 +3,32 @@
         "email": "admin@ey.com",
         "password": "admin123",
         "role": "admin",
-        "name": "System Admin"
+        "name": "System Admin",
+        "team": [
+            "AP",
+            "AR",
+            "IT"
+        ]
     },
     {
         "email": "manager@ey.com",
         "password": "mgr123",
         "role": "manager",
-        "name": "Operations Manager"
+        "name": "Operations Manager",
+        "team": "AP"
     },
     {
         "email": "robertbrown@gmail.com",
         "password": "123",
         "name": "Robert Brown",
-        "role": "employee"
+        "role": "employee",
+        "team": "AP"
     },
     {
         "email": "mansur@gmail.com",
         "password": "123",
         "name": "mansur",
-        "role": "employee"
+        "role": "employee",
+        "team": "AR"
     }
 ]
