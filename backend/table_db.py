@@ -104,19 +104,53 @@ def ensure_required_columns(df):
         df["Ticket Updated Date"] = pd.NA
     if "Auto Resolved" not in df.columns:
         df["Auto Resolved"] = False
+    if "Solved" not in df.columns:
+        df["Solved"] = False
+    if "AI Response" not in df.columns:
+        df["AI Response"] = ""
     return df
 
 
-def update_ticket(ticket_id: str, field: str, value: any) -> bool:
+def search_invoices(params: dict):
     """
-    Update a specific field for a given ticket ID.
+    Search invoices based on dynamic parameters.
+    """
+    try:
+        df = get_invoices_df()
+        for key, value in params.items():
+            if key in df.columns:
+                if isinstance(value, str):
+                    df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
+                else:
+                    df = df[df[key] == value]
+        # Convert Timestamps to strings for JSON serialization
+        results = df.to_dict(orient='records')
+        for row in results:
+            for k, v in row.items():
+                if hasattr(v, 'isoformat'): # Catch Timestamp/datetime
+                    row[k] = v.isoformat()
+                elif isinstance(v, float) and pd.isna(v):
+                    row[k] = None
+        return results
+    except Exception as e:
+        print(f"Invoice search failed: {str(e)}")
+        return []
+
+
+def update_multiple_fields(ticket_id: str, updates: dict) -> bool:
+    """
+    Update multiple fields for a ticket in one go.
     """
     try:
         df = get_all_tickets_df()
         df = ensure_required_columns(df)
-
         search_id = str(ticket_id).strip()
+        mask = df["Ticket ID"] == search_id
+        
+        if not mask.any():
+            return False
 
+        # Field mapping for backward compatibility
         field_map = {
             "Team Name":        "Assigned Team",
             "Person Name":      "User Name",
@@ -127,42 +161,25 @@ def update_ticket(ticket_id: str, field: str, value: any) -> bool:
             "Ticket Status":    "Ticket Status",
             "Ticket Priority":  "Priority",
         }
-        real_field = field_map.get(field, field)
 
-        if real_field not in df.columns:
-            print(f"Field '{real_field}' not found.")
-            return False
-
-        mask = df["Ticket ID"] == search_id
-        if not mask.any():
-            print(f"Ticket {ticket_id} not found.")
-            return False
-
-        # Normalize value
-        if real_field == "Assigned Team":
-            value = str(value).strip().upper() if value is not None else None
-        elif real_field == "User Name":
-            value = str(value).strip().title() if value is not None else None
-        elif real_field in ["User ID", "Ticket ID"]:
-            value = str(value) if value is not None else None
-        elif real_field in ["Creation Date", "Ticket Closed Date", "Ticket Updated Date"]:
-            try:
-                value = pd.to_datetime(value, errors='coerce')
-            except:
-                value = str(value) if value is not None else None
-
-        df.loc[mask, real_field] = value
-
-        # Update timestamp
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        df.loc[mask, "Ticket Updated Date"] = now_str
-
+        for field, value in updates.items():
+            real_field = field_map.get(field, field)
+            if real_field in df.columns:
+                df.loc[mask, real_field] = value
+        
+        df.loc[mask, "Ticket Updated Date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_tickets_df(df)
         return True
-
     except Exception as e:
-        print(f"Update failed: {str(e)}")
+        print(f"Multi-update failed: {str(e)}")
         return False
+
+
+def update_ticket(ticket_id: str, field: str, value: any) -> bool:
+    """
+    Backward compatible single field update.
+    """
+    return update_multiple_fields(ticket_id, {field: value})
 
 
 def add_auto_resolved_flag(ticket_id: str, is_auto: bool = True) -> bool:
@@ -173,6 +190,7 @@ if __name__ == "__main__":
     try:
         df_t = get_all_tickets_df()
         df_i = get_invoices_df()
+        print(get_invoices_df())
         print("Tickets loaded:", df_t.shape)
         print("Invoices loaded:", df_i.shape)
         
