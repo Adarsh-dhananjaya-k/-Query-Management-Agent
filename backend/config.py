@@ -22,6 +22,8 @@ def get_azure_client():
     # by taking control of the transport layer.
     http_client = httpx.Client(
         verify=True,
+        timeout=30.0,
+        trust_env=True
     )
 
     return AzureOpenAI(

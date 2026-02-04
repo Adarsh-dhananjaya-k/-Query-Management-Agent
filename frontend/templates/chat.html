@@ -352,7 +352,9 @@
             {% for msg in chat_history %}
             <div class="message {% if msg.role == 'user' %}message-user{% else %}message-bot{% endif %}">
                 <div class="message-label">{{ 'You' if msg.role == 'user' else 'EY Agent' }}</div>
-                <div>{{ msg.content | safe }}</div>
+                <div class="message-content" {% if msg.role !='user' %}data-raw="{{ msg.content }}" {% endif %}>
+                    {{ msg.content | safe }}
+                </div>
             </div>
             {% endfor %}
             {% else %}
@@ -385,8 +387,52 @@
     </main>
 </div>
 
+<!-- Markdown Parser -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+    /* Styling for rendered Markdown */
+    .message-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .message-content th,
+    .message-content td {
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        text-align: left;
+    }
+
+    .message-content th {
+        background: var(--ey-yellow-light);
+        font-weight: 700;
+    }
+
+    .message-content ul,
+    .message-content ol {
+        padding-left: 20px;
+    }
+
+    .message-bot .message-content p:last-child {
+        margin-bottom: 0;
+    }
+</style>
+
 <script>
     const chatArea = document.querySelector('.chat-messages');
+
+    // Process markdown for all bot messages on load
+    document.querySelectorAll('.message-bot .message-content').forEach(el => {
+        const rawContent = el.getAttribute('data-raw');
+        if (rawContent) {
+            el.innerHTML = marked.parse(rawContent);
+        }
+    });
+
     if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
 </script>
 {% endblock %}

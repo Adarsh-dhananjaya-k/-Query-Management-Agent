@@ -2,6 +2,8 @@
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
 from table_db import get_all_tickets_df, get_invoices_df
 from agents.ticket_agent import TicketAIAgent
+from agents.chat_agent import ChatAIAgent
+from logger_utils import log_chat_interaction
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -117,38 +119,68 @@ def role_home():
         return redirect(url_for("logout"))
 
 
+
+
 # ────────────────────────────────────────────────
-# Chat UI (frontend only - no AI backend)
+# Chat UI with AI Agent Integration
 # ────────────────────────────────────────────────
 
 @app.route("/", methods=["GET", "POST"])
-@app.route("/chat/<session_id>", methods=["GET", "POST"])
-def chat_home(session_id=None):
-    # Placeholder for future chat sessions (UI only)
-    sessions = []  # No real sessions for now
-    current_session = "placeholder"
-    chat_history = []  # No real history
+@app.route("/chat", methods=["GET", "POST"])
+def chat_home():
+    user = session.get("user")
+    if not user:
+        return redirect(url_for("login"))
+
+    # Initialize or retrieve chat history from session
+    if "chat_history" not in session:
+        session["chat_history"] = []
+    
+    chat_history = session["chat_history"]
     error = None
 
     if request.method == "POST":
-        msg = request.form.get("msg", "").strip()
-        if msg:
-            # No AI processing - just echo or placeholder response
-            flash("Message received (AI backend disconnected for now).", "info")
-            # You can add fake responses here later if needed
+        user_msg = request.form.get("msg", "").strip()
+        if user_msg:
+            try:
+                # Initialize Agent with user info
+                agent = ChatAIAgent(user)
+                
+                # Run the chat with history
+                ai_response, updated_history = agent.run_chat(user_msg, chat_history)
+                
+                # Log the interaction (to file & JSON DB)
+                log_chat_interaction(user, user_msg, ai_response)
+                
+                # Update session with new history
+                session["chat_history"] = updated_history
+                session.modified = True
+                
+            except Exception as e:
+                print(f"Chat Error: {str(e)}")
+                traceback.print_exc()
+                flash("Sorry, I encountered an error. Please check your AI configuration.", "danger")
         else:
             flash("Please type a message.", "warning")
 
+    # Filter history for display: only show user/assistant messages with actual text
+    display_history = [
+        msg for msg in session.get("chat_history", [])
+        if msg.get("role") in ["user", "assistant"] and msg.get("content") and msg["content"] != "None"
+    ]
+
     return render_template("chat.html",
-                           sessions=sessions,
-                           current_session=current_session,
-                           chat_history=chat_history,
+                           sessions=[],
+                           current_session="default",
+                           chat_history=display_history,
                            error=error)
 
 
 @app.route("/new_session")
 def new_session():
-    flash("New chat started (AI backend disconnected).", "info")
+    session["chat_history"] = []
+    session.modified = True
+    flash("Chat history cleared.", "success")
     return redirect(url_for("chat_home"))
 
 
@@ -280,7 +312,7 @@ def dashboard():
         open_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] != "Closed"])
         closed_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] == "Closed"])
 
-        auto_resolved = len(filtered_tickets[filtered_tickets["Auto Resolved"] == True]) if "Auto Resolved" in filtered_tickets.columns else 0
+        auto_resolved = len(filtered_tickets[filtered_tickets["Auto Solved"] == True]) if "Auto Solved" in filtered_tickets.columns else 0
 
         ap_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Payable"])
         ar_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Receivable"])
