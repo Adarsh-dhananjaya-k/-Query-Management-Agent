@@ -46,11 +46,17 @@ class ChatAIAgent:
         - You can check invoice/PO status using 'search_invoices' for their own queries.
         - DO NOT allow them to see or modify tickets belonging to other people or teams.
 
-        IF ROLE IS manager OR admin:
-        - You have access to tickets in their team(s): {self.team_str}.
-        - You can reassign tickets to any employee.
-        - You can change ticket status, priority, team, and assigned person.
-        - You can provide performance metrics and KPIs.
+        IF ROLE IS manager:
+        - You have access to tickets in their team: {self.team_str}.
+        - You can reassign tickets to employees WITHIN their team.
+        - You can change ticket status, priority, and assigned person for their team's tickets.
+        - You can provide performance metrics and KPIs for their team.
+
+        IF ROLE IS admin:
+        - You have UNRESTRICTED access to ALL tickets across ALL teams in the system.
+        - You can reassign tickets between ANY teams (e.g., from AP to AR or IT).
+        - You can change any property of any ticket.
+        - You can provide analytics for specific teams or the entire organization.
         - You have full access to search all invoices.
 
         CRITICAL POLICY:
@@ -170,6 +176,8 @@ class ChatAIAgent:
         messages.extend(history)
         messages.append({"role": "user", "content": user_message})
 
+        total_tokens = 0
+
         for turn in range(5):
             response = self.client.chat.completions.create(
                 model=self.deployment,
@@ -178,6 +186,10 @@ class ChatAIAgent:
                 tool_choice="auto"
             )
             
+            # Track tokens
+            if response.usage:
+                total_tokens += response.usage.total_tokens
+
             msg = response.choices[0].message
             
             # Convert OpenAI objects to plain dicts for JSON serialization (history)
@@ -187,8 +199,8 @@ class ChatAIAgent:
             messages.append(msg_dict)
 
             if not msg.tool_calls:
-                # Return the content and the history (excluding system prompt)
-                return msg.content, [m if isinstance(m, dict) else m.model_dump() for m in messages[1:]]
+                # Return the content, history, and total tokens
+                return msg.content, [m if isinstance(m, dict) else m.model_dump() for m in messages[1:]], total_tokens
 
             for tool_call in msg.tool_calls:
                 func_name = tool_call.function.name
@@ -207,14 +219,19 @@ class ChatAIAgent:
                     if self.role == "employee":
                         df = df[df["User Name"].str.lower() == self.name.lower()]
                     elif self.role == "manager":
-                        # If no filter specified, default to manager's team
-                        if "team" not in args and "assigned_to" not in args:
+                        # Managers are strictly limited to their own team(s)
+                        if isinstance(self.team, list):
+                            df = df[df["Assigned Team"].str.lower().isin([t.lower() for t in self.team])]
+                        else:
                             df = df[df["Assigned Team"].str.lower().str.contains(self.team.lower(), na=False)]
                     
-                    # Apply optional filters from AI
+                    # Admins have no mandatory filter (can see everything)
+
+                    # Apply optional filters from AI (within the already filtered range)
                     if "assigned_to" in args:
                         df = df[df["User Name"].str.lower() == str(args["assigned_to"]).lower()]
                     if "team" in args:
+                        # Only filter by team if it doesn't violate role restriction
                         df = df[df["Assigned Team"].str.lower().str.contains(str(args["team"]).lower(), na=False)]
                     if "status" in args:
                         df = df[df["Ticket Status"].str.lower() == str(args["status"]).lower()]
@@ -224,27 +241,51 @@ class ChatAIAgent:
                     result = json.dumps(tickets, default=str)
 
                 elif func_name == "update_ticket_properties":
-                    # Extra security check for employees
-                    if self.role == "employee":
-                        df = get_all_tickets_df()
-                        mask = (df["Ticket ID"].astype(str) == str(args["ticket_id"])) & (df["User Name"].str.lower() == self.name.lower())
-                        if not mask.any():
-                            result = "Error: You do not have permission to modify this ticket."
-                        else:
+                    ticket_id = str(args["ticket_id"])
+                    df = get_all_tickets_df()
+                    mask = (df["Ticket ID"].astype(str) == ticket_id)
+                    
+                    if not mask.any():
+                        result = "Error: Ticket not found."
+                    else:
+                        ticket_data = df[mask].iloc[0]
+                        can_update = False
+                        
+                        if self.role == "admin":
+                            can_update = True
+                        elif self.role == "manager":
+                            # Manager can update if ticket is in their team
+                            t_team = str(ticket_data.get("Assigned Team", "")).lower()
+                            if isinstance(self.team, list):
+                                can_update = t_team in [t.lower() for t in self.team]
+                            else:
+                                can_update = self.team.lower() in t_team
+                        elif self.role == "employee":
+                            # Employee can only update their own tickets
+                            can_update = str(ticket_data.get("User Name", "")).lower() == self.name.lower()
+
+                        if can_update:
                             success = update_multiple_fields(args["ticket_id"], args["updates"])
                             result = "Success" if success else "Failed to update."
-                    else:
-                        success = update_multiple_fields(args["ticket_id"], args["updates"])
-                        result = "Success" if success else "Failed to update."
+                        else:
+                            result = "Error: You do not have permission to modify this ticket."
 
                 elif func_name == "get_analytics_report":
-                    team = args.get("team_name", self.team)
+                    # Admins get full report if no team specified, others restricted
+                    team = args.get("team_name")
+                    if not team and self.role != "admin":
+                        team = self.team
+                    
                     print(f"DEBUG: get_analytics_report for team: {team}")
                     metrics = get_kpi_metrics(team)
                     result = json.dumps(metrics)
 
                 elif func_name == "get_available_resources":
+                    # Admins can see resources for any team, others restricted
                     team = args.get("team_name")
+                    if not team and self.role != "admin":
+                        team = self.team
+                        
                     print(f"DEBUG: get_available_resources for team: {team}")
                     resources = get_team_list(team)
                     result = json.dumps(resources)
@@ -261,4 +302,4 @@ class ChatAIAgent:
                     "content": result
                 })
         
-        return "I encountered an error processing your request.", messages[1:]
+        return "I encountered an error processing your request.", messages[1:], total_tokens

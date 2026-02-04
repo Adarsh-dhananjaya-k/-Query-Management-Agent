@@ -337,7 +337,17 @@
                 <h5>EY Query Agent</h5>
                 <small>Session: {{ current_session[:8] }}...</small>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center">
+                {% if token_usage %}
+                <span class="badge bg-light text-dark border me-2" style="font-size: 0.75rem;">
+                    <i class="fas fa-coins me-1 text-warning"></i>{{ token_usage }} Tokens
+                </span>
+                {% endif %}
+                {% if session.get('user', {}).get('role') == 'admin' %}
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-warning btn-sm">
+                    <i class="fas fa-users-cog me-1"></i>Admin Panel
+                </a>
+                {% endif %}
                 <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="fas fa-chart-line me-1"></i>Dashboard
                 </a>

@@ -127,9 +127,14 @@
         </h1>
         <p class="text-secondary mb-0 mt-2">Manage users and permissions across the organization</p>
     </div>
-    <div class="stat-badge">
-        <i class="fas fa-users"></i>
-        <span class="count">{{ users|length }}</span> Total Users
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('chat_home') }}" class="btn btn-primary d-flex align-items-center">
+            <i class="fas fa-comments me-2"></i>Back to Chat
+        </a>
+        <div class="stat-badge">
+            <i class="fas fa-users"></i>
+            <span class="count">{{ users|length }}</span> Total Users
+        </div>
     </div>
 </div>
 

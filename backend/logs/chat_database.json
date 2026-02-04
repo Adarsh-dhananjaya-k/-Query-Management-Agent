@@ -1,0 +1,34 @@
+[
+    {
+        "timestamp": "2026-02-05 00:59:34",
+        "user_email": "admin@ey.com",
+        "user_name": "System Admin",
+        "role": "admin",
+        "user_message": "which team has TCK1000",
+        "ai_response": "I could not find any ticket with the ID TCK1000 in the system. Please check if the Ticket ID is correct or provide more details so I can assist you further."
+    },
+    {
+        "timestamp": "2026-02-05 00:59:51",
+        "user_email": "admin@ey.com",
+        "user_name": "System Admin",
+        "role": "admin",
+        "user_message": "TCK-1000",
+        "ai_response": "The ticket **TCK-1000** is assigned to the following team:\n\n- **AP Team** (Accounts Payable Team)\n\nIf you need more details about this ticket or wish to take any action, please let me know."
+    },
+    {
+        "timestamp": "2026-02-05 01:00:15",
+        "user_email": "admin@ey.com",
+        "user_name": "System Admin",
+        "role": "admin",
+        "user_message": "reassign to team AR",
+        "ai_response": "The ticket **TCK-1000** has been successfully reassigned to the AR Team.\n\nThe spreadsheet has been updated accordingly. If you need any further changes, please let me know!"
+    },
+    {
+        "timestamp": "2026-02-05 01:00:47",
+        "user_email": "admin@ey.com",
+        "user_name": "System Admin",
+        "role": "admin",
+        "user_message": "to who in the AR team you have assigned to ?",
+        "ai_response": "Currently, ticket **TCK-1000** is assigned to the **AR Team**, but there is no specific individual allocated to this ticket yet.\n\nIf you would like to assign it to a particular person within the AR Team, please let me know their name or request a list of available AR Team members for reassignment."
+    }
+]

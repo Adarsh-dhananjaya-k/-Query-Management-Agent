@@ -192,25 +192,27 @@ def add_auto_solved_flag(ticket_id: str, is_auto: bool = True) -> bool:
     return update_ticket(ticket_id, "Auto Solved", is_auto)
 
 
-def get_team_list(team_name: str = None) -> list:
+def get_team_list(team_name: any = None) -> list:
     """
-    Returns a list of unique team names or employees within a team.
+    Returns a list of unique team names or employees within a team/teams.
     """
     try:
         df = get_all_tickets_df()
         if team_name:
-            team_name_clean = str(team_name).strip().lower()
-            print(f"DEBUG: Searching for employees in team matching: '{team_name_clean}'")
+            if isinstance(team_name, list):
+                teams_low = [str(t).strip().lower() for t in team_name]
+                print(f"DEBUG: Searching for employees in teams: {teams_low}")
+                mask = df["Assigned Team"].str.lower().isin(teams_low)
+            else:
+                team_name_clean = str(team_name).strip().lower()
+                print(f"DEBUG: Searching for employees in team matching: '{team_name_clean}'")
+                mask = df["Assigned Team"].str.lower().str.contains(team_name_clean, na=False)
             
-            # Flexible matching: check if team_name is in the Assigned Team string
-            mask = df["Assigned Team"].str.lower().str.contains(team_name_clean, na=False)
             matches = df[mask]["User Name"].unique().tolist()
-            
-            print(f"DEBUG: Found {len(matches)} employees: {matches}")
+            print(f"DEBUG: Found {len(matches)} employees.")
             return matches
         else:
             teams = df["Assigned Team"].unique().tolist()
-            print(f"DEBUG: Returning all {len(teams)} teams.")
             return teams
     except Exception as e:
         print(f"ERROR in get_team_list: {str(e)}")
@@ -230,9 +232,14 @@ def get_kpi_metrics(team_name: str = None) -> dict:
     df = ensure_required_columns(df)
     
     if team_name:
-        team_name_clean = str(team_name).strip().lower()
-        print(f"DEBUG: Calculating KPIs for team matching: '{team_name_clean}'")
-        df = df[df["Assigned Team"].str.lower().str.contains(team_name_clean, na=False)]
+        if isinstance(team_name, list):
+            teams_low = [str(t).strip().lower() for t in team_name]
+            print(f"DEBUG: Calculating KPIs for teams: {teams_low}")
+            df = df[df["Assigned Team"].str.lower().isin(teams_low)]
+        else:
+            team_name_clean = str(team_name).strip().lower()
+            print(f"DEBUG: Calculating KPIs for team matching: '{team_name_clean}'")
+            df = df[df["Assigned Team"].str.lower().str.contains(team_name_clean, na=False)]
     else:
         print("DEBUG: Calculating KPIs for ALL teams.")
 

@@ -108,9 +108,7 @@ def role_home():
     user = session.get("user", {})
     role = user.get("role")
 
-    if role == "admin":
-        return redirect(url_for("admin_dashboard"))
-    elif role == "manager":
+    if role == "admin" or role == "manager":
         return redirect(url_for("chat_home"))
     elif role == "employee":
         return redirect(url_for("employee_home"))
@@ -147,13 +145,14 @@ def chat_home():
                 agent = ChatAIAgent(user)
                 
                 # Run the chat with history
-                ai_response, updated_history = agent.run_chat(user_msg, chat_history)
+                ai_response, updated_history, total_tokens = agent.run_chat(user_msg, chat_history)
                 
                 # Log the interaction (to file & JSON DB)
                 log_chat_interaction(user, user_msg, ai_response)
                 
-                # Update session with new history
+                # Update session with new history and token usage
                 session["chat_history"] = updated_history
+                session["last_token_usage"] = total_tokens
                 session.modified = True
                 
             except Exception as e:
@@ -173,6 +172,7 @@ def chat_home():
                            sessions=[],
                            current_session="default",
                            chat_history=display_history,
+                           token_usage=session.get("last_token_usage", 0),
                            error=error)
 
 

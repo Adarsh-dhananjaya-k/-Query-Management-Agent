@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 # Chat Database (JSON acting as DB)
-CHAT_DB_FILE = "chat_database.json"
+CHAT_DB_FILE = "logs/chat_database.json"
 
 def log_chat_interaction(user_info, user_message, ai_response):
     """
