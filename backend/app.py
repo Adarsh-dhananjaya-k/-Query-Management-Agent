@@ -1,10 +1,11 @@
 # app.py
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
-from table_db import get_all_tickets_df, get_invoices_df
+from table_db import get_all_tickets_df, get_invoices_df, update_multiple_fields
 from agents.ticket_agent import TicketAIAgent
 from agents.chat_agent import ChatAIAgent
 from logger_utils import log_chat_interaction
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import io
@@ -16,16 +17,15 @@ import os
 import json
 import threading
 
-app = Flask(__name__, 
-            template_folder='../frontend/templates', 
+app = Flask(__name__,
+            template_folder='../frontend/templates',
             static_folder='../frontend/static')
 
 app.secret_key = "ey_demo_secret_key_2025_super_secret"
 
 # Users file
-# Users file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-USERS_FILE = "user.json"
+USERS_FILE = os.path.join(BASE_DIR, "user.json")
 
 
 def load_users():
@@ -60,7 +60,7 @@ def plot_to_img(fig):
 
 
 # ────────────────────────────────────────────────
-# Login Page (entry point)
+# Login / Logout
 # ────────────────────────────────────────────────
 
 @app.route("/login", methods=["GET", "POST"])
@@ -120,8 +120,6 @@ def role_home():
         return redirect(url_for("logout"))
 
 
-
-
 # ────────────────────────────────────────────────
 # Chat UI with AI Agent Integration
 # ────────────────────────────────────────────────
@@ -133,10 +131,9 @@ def chat_home():
     if not user:
         return redirect(url_for("login"))
 
-    # Initialize or retrieve chat history from session
     if "chat_history" not in session:
         session["chat_history"] = []
-    
+
     chat_history = session["chat_history"]
     error = None
 
@@ -144,20 +141,15 @@ def chat_home():
         user_msg = request.form.get("msg", "").strip()
         if user_msg:
             try:
-                # Initialize Agent with user info
                 agent = ChatAIAgent(user)
-                
-                # Run the chat with history
                 ai_response, updated_history, total_tokens = agent.run_chat(user_msg, chat_history)
-                
-                # Log the interaction (to file & JSON DB)
+
                 log_chat_interaction(user, user_msg, ai_response)
-                
-                # Update session with new history and token usage
+
                 session["chat_history"] = updated_history
                 session["last_token_usage"] = total_tokens
                 session.modified = True
-                
+
             except Exception as e:
                 print(f"Chat Error: {str(e)}")
                 traceback.print_exc()
@@ -165,7 +157,6 @@ def chat_home():
         else:
             flash("Please type a message.", "warning")
 
-    # Filter history for display: only show user/assistant messages with actual text
     display_history = [
         msg for msg in session.get("chat_history", [])
         if msg.get("role") in ["user", "assistant"] and msg.get("content") and msg["content"] != "None"
@@ -192,7 +183,7 @@ def process_tickets():
     if session.get("user", {}).get("role") not in ["admin", "manager"]:
         flash("Access denied.", "danger")
         return redirect(url_for("role_home"))
-    
+
     def run_agent_job():
         try:
             print("🚀 Starting background ticket processing...")
@@ -203,17 +194,48 @@ def process_tickets():
             print(f"❌ Background processing failed: {e}")
             traceback.print_exc()
 
-    # Start thread
     thread = threading.Thread(target=run_agent_job)
-    thread.daemon = True # Daemon thread dies when app dies
+    thread.daemon = True
     thread.start()
-    
+
     flash("AI Agent started processing tickets in the background. Check logs for progress.", "info")
     return redirect(url_for("dashboard"))
 
 
 # ────────────────────────────────────────────────
-# Admin Dashboard – Add User (no team)
+# Handle Reopen / Confirm Closed for AI-closed tickets
+# ────────────────────────────────────────────────
+
+@app.route("/review_ticket_action/<ticket_id>", methods=["POST"])
+def review_ticket_action(ticket_id):
+    user = session.get("user", {})
+    if user.get("role") not in ["admin", "manager"]:
+        flash("Only admins/managers can review tickets.", "danger")
+        return redirect(url_for("dashboard"))
+
+    action = request.form.get("action")
+
+    updates = {}
+    if action == "reopen":
+        updates["Ticket Status"] = "Open"
+        updates["Auto Solved"] = False  # Remove AI-solved flag so it doesn't pop up again
+        flash(f"Ticket {ticket_id} has been reopened.", "success")
+    elif action == "confirm_closed":
+        updates["Auto Solved"] = False  # Remove from review list
+        flash(f"Ticket {ticket_id} confirmed closed – won't show again.", "info")
+    else:
+        flash("Invalid action.", "danger")
+        return redirect(url_for("dashboard"))
+
+    success = update_multiple_fields(ticket_id, updates)
+    if not success:
+        flash("Failed to update ticket.", "danger")
+
+    return redirect(url_for("dashboard"))
+
+
+# ────────────────────────────────────────────────
+# Admin Dashboard – Add User
 # ────────────────────────────────────────────────
 
 @app.route("/admin_dashboard", methods=["GET", "POST"])
@@ -238,11 +260,7 @@ def admin_dashboard():
             elif any(u["email"] == email for u in users):
                 flash("Email already exists.", "danger")
             else:
-                # Handle team as list for admins, string for others
-                if role == "admin":
-                    team_val = [t.strip() for t in team.split(",") if t.strip()]
-                else:
-                    team_val = team
+                team_val = [t.strip() for t in team.split(",") if t.strip()] if role == "admin" else team
 
                 new_user = {
                     "email": email,
@@ -260,20 +278,7 @@ def admin_dashboard():
 
 
 # ────────────────────────────────────────────────
-# Manager Home (redirects to dashboard)
-# ────────────────────────────────────────────────
-
-@app.route("/manager_home")
-def manager_home():
-    if session.get("user", {}).get("role") != "manager":
-        flash("Access denied.", "danger")
-        return redirect(url_for("role_home"))
-
-    return redirect(url_for("dashboard"))
-
-
-# ────────────────────────────────────────────────
-# Employee Home – All open tickets by name (no team filter)
+# Employee Home
 # ────────────────────────────────────────────────
 
 @app.route("/employee_home")
@@ -285,19 +290,18 @@ def employee_home():
     user_name = session["user"]["name"].strip().lower()
 
     df = get_all_tickets_df()
-    # Filter only by name, ignore team
     my_tickets = df[
         (df["User Name"].str.strip().str.lower() == user_name) &
         (df["Ticket Status"] != "Closed")
-    ]
+        ]
 
-    return render_template("employee_dashboard.html", 
+    return render_template("employee_dashboard.html",
                            my_tickets=my_tickets.to_dict(orient='records'),
                            user_name=session["user"]["name"])
 
 
 # ────────────────────────────────────────────────
-# Full Dashboard (manager/admin access only)
+# Manager/Admin Dashboard – with AI Review Section
 # ────────────────────────────────────────────────
 
 @app.route("/dashboard")
@@ -327,7 +331,8 @@ def dashboard():
         open_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] != "Closed"])
         closed_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] == "Closed"])
 
-        auto_resolved = len(filtered_tickets[filtered_tickets["Auto Solved"] == True]) if "Auto Solved" in filtered_tickets.columns else 0
+        auto_resolved = len(filtered_tickets[filtered_tickets[
+                                                 "Auto Solved"] == True]) if "Auto Solved" in filtered_tickets.columns else 0
 
         ap_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Payable"])
         ar_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Receivable"])
@@ -337,6 +342,17 @@ def dashboard():
             "closed": round(closed_tickets / total_tickets * 100, 1) if total_tickets else 0,
             "auto_resolved": round(auto_resolved / closed_tickets * 100, 1) if closed_tickets else 0
         }
+
+        # Show ALL tickets where Auto Solved is True
+        review_tickets = []
+        if "Auto Solved" in df_tickets.columns:
+            try:
+                review_tickets = df_tickets[
+                    df_tickets["Auto Solved"] == True
+                    ].sort_values("Ticket Closed Date", ascending=False).to_dict(orient="records")
+            except Exception as e:
+                print(f"Error filtering auto-solved tickets: {e}")
+                review_tickets = []
 
         total_invoices = len(df_invoices)
         unpaid_invoices = len(df_invoices[df_invoices.get("Payment Status", "") == "Unpaid"])
@@ -349,7 +365,7 @@ def dashboard():
             (df_invoices["Payment Status"] == "Unpaid") &
             (df_invoices["Due Date"].notna()) &
             (df_invoices["Due Date"] < today)
-        ]
+            ]
         overdue_count = len(overdue)
 
         teams = sorted(df_tickets["Assigned Team"].dropna().unique())
@@ -380,11 +396,13 @@ def dashboard():
                                total_tickets=total_tickets, open_tickets=open_tickets, closed_tickets=closed_tickets,
                                auto_resolved=auto_resolved, ap_tickets=ap_tickets, ar_tickets=ar_tickets,
                                ticket_rates=ticket_rates,
-                               total_invoices=total_invoices, paid_invoices=paid_invoices, unpaid_invoices=unpaid_invoices,
+                               total_invoices=total_invoices, paid_invoices=paid_invoices,
+                               unpaid_invoices=unpaid_invoices,
                                total_amount=total_amount, unpaid_amount=unpaid_amount, overdue_count=overdue_count,
                                pie_img=pie_img, team_img=team_img, inv_pie_img=inv_pie_img,
                                teams=teams, users=users, types=types,
-                               selected_team=selected_team, selected_user=selected_user, selected_type=selected_type)
+                               selected_team=selected_team, selected_user=selected_user, selected_type=selected_type,
+                               review_tickets=review_tickets)
 
     except Exception as e:
         return render_template_string("""

@@ -302,5 +302,13 @@
         "role": "manager",
         "user_message": "show me the open tickets of AP team",
         "ai_response": "Here are the current open tickets for the AP Team:\n\n| Ticket ID   | Priority | Assigned To     | Brief Description                                         |\n|-------------|----------|-----------------|-----------------------------------------------------------|\n| **TCK-1002** | High     | Robert Brown    | Please confirm PO PO-5003 approval status                 |\n| **TCK-1004** | Medium   | Robert Brown    | Requesting clearing date for invoice INV-1005             |\n| **TCK-1006** | Medium   | Robert Brown    | Status update on invoice INV-1007 payment                 |\n| **TCK-1008** | High     | Robert Brown    | Requesting payment confirmation for invoice INV-1009      |\n| **TCK-1010** | Low      | Michael Green   | Requesting invoice INV-1010 status update                 |\n| **TCK-1014** | Medium   | Michael Green   | Confirm PO PO-5015 approval                               |\n| **TCK-1016** | Low      | Michael Green   | Request clearing date for INV-1016                        |\n| **TCK-1020** | Medium   | Michael Green   | Requesting payment date for INV-1020                      |\n| **TCK-1022** | High     | Laura Scott     | Confirm PO PO-5023 approval status                        |\n| **TCK-1024** | Low      | Laura Scott     | Request clearing date for INV-1024                        |\n| **TCK-1030** | High     | Alicia Brown    | Requesting status update for INV-1030                     |\n| **TCK-1032** | Low      | Alicia Brown    | Please confirm PO PO-5033 approval                        |\n| **TCK-1034** | Medium   | Kevin Hall      | Request clearing date for INV-1034                        |\n| **TCK-1038** | Low      | Kevin Hall      | Payment confirmation for INV-1038 required                |\n| **TCK-1040** | High     | Kevin Hall      | Can you provide the discrepancy details for INV-1040?     |\n| **TCK-1044** | Medium   | Grace Taylor    | Can we split the payment for INV-1044 into two installments? |\n| **TCK-1048** | Low      | Grace Taylor    | Can we correct the supplier bank details for INV-1048?    |\n\nWould you like to take any action on a specific ticket or need more details (e.g., by category or priority)?"
+    },
+    {
+        "timestamp": "2026-02-05 21:08:10",
+        "user_email": "mansur@gmail.com",
+        "user_name": "Mansur",
+        "role": "employee",
+        "user_message": "hey",
+        "ai_response": "Hello Mansur! How can I help you today? If you need assistance with your AR tickets or have a query about an invoice or PO, just let me know."
     }
 ]

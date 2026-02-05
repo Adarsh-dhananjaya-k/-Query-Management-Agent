@@ -1,7 +1,7 @@
 [
     {
-        "email": "naveen7mallikanti@gmail.com",
-        "password": "admin123",
+        "email": "admin@ey.com",
+        "password": "123",
         "role": "admin",
         "name": "System Admin",
         "team": [
@@ -11,8 +11,8 @@
         ]
     },
     {
-        "email": "naveen7mallikanti@gmail.com",
-        "password": "mgr123",
+        "email": "manager@ey.com",
+        "password": "123",
         "role": "manager",
         "name": "Operations Manager",
         "team": "AP"
