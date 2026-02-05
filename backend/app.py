@@ -14,6 +14,7 @@ from datetime import datetime
 import pandas as pd
 import os
 import json
+import threading
 
 app = Flask(__name__, 
             template_folder='../frontend/templates', 
@@ -22,7 +23,9 @@ app = Flask(__name__,
 app.secret_key = "ey_demo_secret_key_2025_super_secret"
 
 # Users file
-USERS_FILE = "user.json"
+# Users file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+USERS_FILE = os.path.join(BASE_DIR, "user.json")
 
 
 def load_users():
@@ -190,10 +193,22 @@ def process_tickets():
         flash("Access denied.", "danger")
         return redirect(url_for("role_home"))
     
-    agent = TicketAIAgent()
-    results = agent.run_on_all_open_tickets()
+    def run_agent_job():
+        try:
+            print("🚀 Starting background ticket processing...")
+            agent = TicketAIAgent()
+            results = agent.run_on_all_open_tickets()
+            print(f"✅ Background processing complete. Processed {len(results)} tickets.")
+        except Exception as e:
+            print(f"❌ Background processing failed: {e}")
+            traceback.print_exc()
+
+    # Start thread
+    thread = threading.Thread(target=run_agent_job)
+    thread.daemon = True # Daemon thread dies when app dies
+    thread.start()
     
-    flash(f"AI Agent finished processing {len(results)} tickets.", "success")
+    flash("AI Agent started processing tickets in the background. Check logs for progress.", "info")
     return redirect(url_for("dashboard"))
 
 

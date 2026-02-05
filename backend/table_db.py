@@ -8,7 +8,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
-FILE = "QMT Data New.xlsx"
+FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "QMT Data New.xlsx")
 
 
 def get_all_tickets_df(sheet_name="Tickets"):

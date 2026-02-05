@@ -250,7 +250,7 @@ class ChatAIAgent:
                     if "status" in args:
                         df = df[df["Ticket Status"].str.lower() == str(args["status"]).lower()]
                     
-                    tickets = df.head(10).to_dict(orient="records")
+                    tickets = df.head(50).to_dict(orient="records")
                     print(f"DEBUG: list_tickets found {len(tickets)} rows.")
                     result = json.dumps(tickets, default=str)
 
