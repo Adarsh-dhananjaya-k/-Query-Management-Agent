@@ -310,5 +310,37 @@
         "role": "employee",
         "user_message": "hey",
         "ai_response": "Hello Mansur! How can I help you today? If you need assistance with your AR tickets or have a query about an invoice or PO, just let me know."
+    },
+    {
+        "timestamp": "2026-02-06 00:54:44",
+        "user_email": "robertbrown@gmail.com",
+        "user_name": "Robert Brown",
+        "role": "employee",
+        "user_message": "hey",
+        "ai_response": "Hello Robert! How can I assist you today?"
+    },
+    {
+        "timestamp": "2026-02-06 00:55:15",
+        "user_email": "robertbrown@gmail.com",
+        "user_name": "Robert Brown",
+        "role": "employee",
+        "user_message": "hey",
+        "ai_response": "Hi Robert! How can I help you today? If you have any questions about your AP tickets, invoices, or need assistance with something else, just let me know."
+    },
+    {
+        "timestamp": "2026-02-06 00:55:22",
+        "user_email": "robertbrown@gmail.com",
+        "user_name": "Robert Brown",
+        "role": "employee",
+        "user_message": "hello",
+        "ai_response": "Hello Robert! How can I help you today? If you have any questions or need assistance with your AP tickets or invoice queries, just let me know."
+    },
+    {
+        "timestamp": "2026-02-06 11:08:58",
+        "user_email": "robertbrown@gmail.com",
+        "user_name": "Robert Brown",
+        "role": "employee",
+        "user_message": "hey",
+        "ai_response": "Hello Robert! How can I help you today? If you have any queries about your tickets, invoices, or need assistance with AP processes, just let me know."
     }
 ]

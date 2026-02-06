@@ -203,6 +203,72 @@ def process_tickets():
 
 
 # ────────────────────────────────────────────────
+# Auto-Assign Open Tickets (balanced workload + detailed summary)
+# ────────────────────────────────────────────────
+
+@app.route("/auto_assign_tickets")
+def auto_assign_tickets():
+    user = session.get("user", {})
+    if user.get("role") not in ["manager", "admin"]:
+        flash("Only managers and admins can assign tickets.", "danger")
+        return redirect(url_for("dashboard"))
+
+    try:
+        df = get_all_tickets_df()
+
+        open_tickets = df[df["Ticket Status"].str.lower() == "open"].copy()
+
+        if open_tickets.empty:
+            flash("No open tickets to assign.", "info")
+            return redirect(url_for("dashboard"))
+
+        users = df["User Name"].dropna().unique().tolist()
+
+        if not users:
+            flash("No users available for assignment.", "danger")
+            return redirect(url_for("dashboard"))
+
+        # Track assignments for summary
+        assignment_summary = {u: 0 for u in users}
+
+        # Current workload
+        workload = {}
+        for u in users:
+            workload[u] = len(df[(df["User Name"] == u) & (df["Ticket Status"].str.lower() == "open")])
+
+        # Sort users by current workload (lowest first)
+        sorted_users = sorted(workload, key=workload.get)
+
+        assigned_count = 0
+        for i, (_, row) in enumerate(open_tickets.iterrows()):
+            user_index = i % len(sorted_users)
+            assigned_user = sorted_users[user_index]
+
+            update_multiple_fields(row["Ticket ID"], {
+                "User Name": assigned_user,
+                # "User ID": ... (add lookup if needed)
+            })
+
+            assignment_summary[assigned_user] += 1
+            workload[assigned_user] += 1
+            assigned_count += 1
+
+        # Build nice summary message
+        summary_lines = [f"{user}: {count} ticket{'s' if count != 1 else ''}"
+                         for user, count in assignment_summary.items() if count > 0]
+
+        summary_text = f"Auto-assignment complete! Total open tickets assigned: {assigned_count} - " + \
+                       " - ".join(summary_lines)
+
+        flash(summary_text, "success")
+
+    except Exception as e:
+        flash(f"Auto-assignment failed: {str(e)}", "danger")
+
+    return redirect(url_for("dashboard"))
+
+
+# ────────────────────────────────────────────────
 # Handle Reopen / Confirm Closed for AI-closed tickets
 # ────────────────────────────────────────────────
 
@@ -218,7 +284,7 @@ def review_ticket_action(ticket_id):
     updates = {}
     if action == "reopen":
         updates["Ticket Status"] = "Open"
-        updates["Auto Solved"] = False  # Remove AI-solved flag so it doesn't pop up again
+        updates["Auto Solved"] = False  # Remove from review list
         flash(f"Ticket {ticket_id} has been reopened.", "success")
     elif action == "confirm_closed":
         updates["Auto Solved"] = False  # Remove from review list
@@ -228,8 +294,11 @@ def review_ticket_action(ticket_id):
         return redirect(url_for("dashboard"))
 
     success = update_multiple_fields(ticket_id, updates)
-    if not success:
-        flash("Failed to update ticket.", "danger")
+    if success:
+        print(f"DEBUG: Ticket {ticket_id} updated successfully.")
+    else:
+        print(f"ERROR: Failed to update ticket {ticket_id}.")
+        flash("Failed to update ticket in Excel.", "danger")
 
     return redirect(url_for("dashboard"))
 
@@ -301,7 +370,7 @@ def employee_home():
 
 
 # ────────────────────────────────────────────────
-# Manager/Admin Dashboard – with AI Review Section
+# Manager/Admin Dashboard
 # ────────────────────────────────────────────────
 
 @app.route("/dashboard")
@@ -331,8 +400,9 @@ def dashboard():
         open_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] != "Closed"])
         closed_tickets = len(filtered_tickets[filtered_tickets["Ticket Status"] == "Closed"])
 
-        auto_resolved = len(filtered_tickets[filtered_tickets[
-                                                 "Auto Solved"] == True]) if "Auto Solved" in filtered_tickets.columns else 0
+        auto_resolved = 0
+        if "Auto Solved" in filtered_tickets.columns:
+            auto_resolved = len(filtered_tickets[filtered_tickets["Auto Solved"] == True])
 
         ap_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Payable"])
         ar_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Receivable"])
@@ -343,7 +413,7 @@ def dashboard():
             "auto_resolved": round(auto_resolved / closed_tickets * 100, 1) if closed_tickets else 0
         }
 
-        # Show ALL tickets where Auto Solved is True
+        # Review tickets: all where Auto Solved is True
         review_tickets = []
         if "Auto Solved" in df_tickets.columns:
             try:
@@ -352,7 +422,6 @@ def dashboard():
                     ].sort_values("Ticket Closed Date", ascending=False).to_dict(orient="records")
             except Exception as e:
                 print(f"Error filtering auto-solved tickets: {e}")
-                review_tickets = []
 
         total_invoices = len(df_invoices)
         unpaid_invoices = len(df_invoices[df_invoices.get("Payment Status", "") == "Unpaid"])
