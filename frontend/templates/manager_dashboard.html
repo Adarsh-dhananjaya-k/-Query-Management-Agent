@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Manager Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .page-header h1 .icon-box {
+        width: 48px;
+        height: 48px;
+        background: var(--ey-yellow);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ey-black);
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .kpi-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .kpi-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .kpi-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+    }
+
+    .kpi-card.yellow::before { background: var(--ey-yellow); }
+    .kpi-card.blue::before   { background: var(--accent-blue); }
+    .kpi-card.green::before  { background: var(--accent-green); }
+    .kpi-card.red::before    { background: var(--accent-red); }
+    .kpi-card.purple::before { background: var(--accent-purple); }
+
+    .kpi-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .kpi-icon.yellow { background: var(--ey-yellow-light); color: var(--ey-black); }
+    .kpi-icon.blue   { background: #dbeafe; color: var(--accent-blue); }
+    .kpi-icon.green  { background: #d1fae5; color: var(--accent-green); }
+    .kpi-icon.red    { background: #fee2e2; color: var(--accent-red); }
+    .kpi-icon.purple { background: #f3e8ff; color: var(--accent-purple); }
+
+    .kpi-label {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+        margin-bottom: 0.25rem;
+    }
+
+    .kpi-value {
+        font-size: 2.25rem;
+        font-weight: 800;
+        line-height: 1.2;
+        color: var(--text-primary);
+    }
+
+    .kpi-subtitle {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        margin-top: 0.5rem;
+    }
+
+    /* Filter Card */
+    .filter-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: var(--shadow-sm);
+    }
+
+    /* Chart Card */
+    .chart-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.5rem;
+        height: 100%;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .chart-card h5 {
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+        font-size: 1rem;
+    }
+
+    .chart-card img {
+        width: 100%;
+        height: auto;
+        border-radius: 8px;
+    }
+
+    /* Section Title */
+    .section-title {
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: var(--text-primary);
+    }
+
+    .section-title .section-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--ey-yellow);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ey-black);
+        font-size: 0.875rem;
+    }
+
+    /* Header Buttons */
+    .header-actions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    /* Accordion Styling */
+    .accordion-button {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .accordion-button:not(.collapsed) {
+        background-color: #fffbeb;
+        color: #92400e;
+        box-shadow: inset 0 -1px 0 rgba(0,0,0,.125);
+    }
+
+    .accordion-body {
+        background-color: #fdfaf5;
+    }
+
+    .accordion-item {
+        border: 1px solid #ffeaa7;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="mb-1">
+            <span class="icon-box">
+                <i class="fas fa-chart-line"></i>
+            </span>
+            Manager Dashboard
+        </h1>
+        <p class="text-secondary mb-0 mt-2">Overview of tickets and invoices across your teams</p>
+    </div>
+    <div class="header-actions">
+        <a href="{{ url_for('process_tickets') }}" class="btn btn-outline-primary">
+            <i class="fas fa-robot me-2"></i>Run AI Agent
+        </a>
+        <a href="{{ url_for('auto_assign_tickets') }}" class="btn btn-outline-success">
+            <i class="fas fa-user-check me-2"></i>Auto-Assign Open Tickets
+        </a>
+        <a href="{{ url_for('chat_home') }}" class="btn btn-primary">
+            <i class="fas fa-comments me-2"></i>Chat
+        </a>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-card">
+    <form method="GET" class="row g-3 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label">Team</label>
+            <select name="team_filter" class="form-select">
+                <option value="">All Teams</option>
+                {% for t in teams %}
+                <option value="{{ t }}" {% if t==selected_team %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">User</label>
+            <select name="user_filter" class="form-select">
+                <option value="">All Users</option>
+                {% for u in users %}
+                <option value="{{ u }}" {% if u==selected_user %}selected{% endif %}>{{ u }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Type</label>
+            <select name="type_filter" class="form-select">
+                <option value="">All Types</option>
+                {% for typ in types %}
+                <option value="{{ typ }}" {% if typ==selected_type %}selected{% endif %}>{{ typ }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-primary w-100">
+                <i class="fas fa-filter me-2"></i>Apply Filters
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Tickets KPIs -->
+<h3 class="section-title">
+    <span class="section-icon"><i class="fas fa-ticket-alt"></i></span>
+    Tickets Overview
+</h3>
+<div class="kpi-grid mb-5">
+    <div class="kpi-card yellow">
+        <div class="kpi-icon yellow"><i class="fas fa-layer-group"></i></div>
+        <div class="kpi-label">Total Tickets</div>
+        <div class="kpi-value">{{ total_tickets }}</div>
+        <div class="kpi-subtitle">AP: {{ ap_tickets }} • AR: {{ ar_tickets }}</div>
+    </div>
+    <div class="kpi-card blue">
+        <div class="kpi-icon blue"><i class="fas fa-clock"></i></div>
+        <div class="kpi-label">Open Tickets</div>
+        <div class="kpi-value">{{ open_tickets }}</div>
+        <div class="kpi-subtitle">{{ ticket_rates.open }}% of total</div>
+    </div>
+    <div class="kpi-card green">
+        <div class="kpi-icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="kpi-label">Closed Tickets</div>
+        <div class="kpi-value">{{ closed_tickets }}</div>
+        <div class="kpi-subtitle">{{ ticket_rates.closed }}% resolved</div>
+    </div>
+    <div class="kpi-card yellow">
+        <div class="kpi-icon yellow"><i class="fas fa-robot"></i></div>
+        <div class="kpi-label">Auto-resolved</div>
+        <div class="kpi-value">{{ auto_resolved }}</div>
+        <div class="kpi-subtitle">{{ ticket_rates.auto_resolved }}% of closed</div>
+    </div>
+</div>
+
+<!-- AI Auto-Closed Tickets – Accordion Style -->
+<h3 class="section-title">
+    <span class="section-icon"><i class="fas fa-robot"></i></span>
+    AI Auto-Closed Tickets – Your Review
+</h3>
+
+{% if review_tickets and review_tickets|length > 0 %}
+<div class="accordion mb-5 shadow" id="aiReviewAccordion">
+    {% for ticket in review_tickets %}
+    <div class="accordion-item border-warning">
+        <h2 class="accordion-header" id="heading-{{ ticket['Ticket ID'] }}">
+            <button class="accordion-button collapsed fw-bold" type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#collapse-{{ ticket['Ticket ID'] }}"
+                    aria-expanded="false"
+                    aria-controls="collapse-{{ ticket['Ticket ID'] }}">
+                Ticket #{{ ticket['Ticket ID'] }} – Closed on {{ ticket.get('Ticket Closed Date', '—') }}
+            </button>
+        </h2>
+        <div id="collapse-{{ ticket['Ticket ID'] }}" class="accordion-collapse collapse"
+             aria-labelledby="heading-{{ ticket['Ticket ID'] }}"
+             data-bs-parent="#aiReviewAccordion">
+            <div class="accordion-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <strong>Team:</strong> {{ ticket.get('Assigned Team', '—') }}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>User:</strong> {{ ticket.get('User Name', '—') }}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Type:</strong> {{ ticket.get('Ticket Type', '—') }}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Closed Date:</strong> {{ ticket.get('Ticket Closed Date', '—') }}
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong>Description:</strong>
+                    <p class="mt-2">{{ ticket.get('Description', 'No description provided') }}</p>
+                </div>
+                <div class="mb-4">
+                    <strong>AI Resolution:</strong>
+                    <p class="mt-2">{{ ticket.get('AI Response', 'No summary provided') }}</p>
+                </div>
+                <hr>
+                <div class="d-flex gap-3 justify-content-end">
+                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST">
+                        <input type="hidden" name="action" value="reopen">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-undo me-1"></i> Reopen Ticket
+                        </button>
+                    </form>
+                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST">
+                        <input type="hidden" name="action" value="confirm_closed">
+                        <button type="submit" class="btn btn-outline-secondary">
+                            <i class="fas fa-check me-1"></i> Confirm Closed
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-success mb-5">
+    <i class="fas fa-check-circle me-2"></i>
+    No AI-closed tickets waiting for your review.
+</div>
+{% endif %}
+
+<!-- Invoices KPIs -->
+<h3 class="section-title">
+    <span class="section-icon"><i class="fas fa-file-invoice-dollar"></i></span>
+    Invoices Overview
+</h3>
+<div class="kpi-grid mb-5">
+    <div class="kpi-card yellow">
+        <div class="kpi-icon yellow"><i class="fas fa-file-alt"></i></div>
+        <div class="kpi-label">Total Invoices</div>
+        <div class="kpi-value">{{ total_invoices }}</div>
+        <div class="kpi-subtitle">Total: ${{ total_amount | round(0) }}</div>
+    </div>
+    <div class="kpi-card green">
+        <div class="kpi-icon green"><i class="fas fa-check"></i></div>
+        <div class="kpi-label">Paid</div>
+        <div class="kpi-value">{{ paid_invoices }}</div>
+    </div>
+    <div class="kpi-card blue">
+        <div class="kpi-icon blue"><i class="fas fa-hourglass-half"></i></div>
+        <div class="kpi-label">Unpaid</div>
+        <div class="kpi-value">{{ unpaid_invoices }}</div>
+        <div class="kpi-subtitle">${{ unpaid_amount | round(0) }} pending</div>
+    </div>
+    <div class="kpi-card red">
+        <div class="kpi-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="kpi-label">Overdue</div>
+        <div class="kpi-value">{{ overdue_count }}</div>
+    </div>
+</div>
+
+<!-- Charts -->
+<h3 class="section-title">
+    <span class="section-icon"><i class="fas fa-chart-pie"></i></span>
+    Analytics
+</h3>
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="chart-card">
+            <h5><i class="fas fa-chart-pie me-2 text-secondary"></i>Ticket Status Distribution</h5>
+            <img src="data:image/png;base64,{{ pie_img }}" alt="Ticket Status">
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="chart-card">
+            <h5><i class="fas fa-chart-bar me-2 text-secondary"></i>Tickets by Team & Type</h5>
+            <img src="data:image/png;base64,{{ team_img }}" alt="Team Chart">
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="chart-card">
+            <h5><i class="fas fa-file-invoice me-2 text-secondary"></i>Invoice Payment Status</h5>
+            <img src="data:image/png;base64,{{ inv_pie_img }}" alt="Invoice Status">
+        </div>
+    </div>
+</div>
+{% endblock %}
