@@ -416,6 +416,11 @@ def dashboard():
         df_tickets = get_all_tickets_df()
         df_invoices = get_invoices_df()
 
+        if "Invoice Amount" in df_invoices.columns:
+            df_invoices["Invoice Amount"] = pd.to_numeric(df_invoices["Invoice Amount"], errors="coerce")
+        else:
+            df_invoices["Invoice Amount"] = 0.0
+
         selected_team = request.args.get("team_filter", "").strip()
         selected_user = request.args.get("user_filter", "").strip()
         selected_type = request.args.get("type_filter", "").strip()
