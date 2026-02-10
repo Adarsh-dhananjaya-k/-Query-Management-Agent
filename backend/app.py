@@ -1,7 +1,13 @@
 # app.py
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
-from table_db import get_all_tickets_df, get_invoices_df, update_multiple_fields
-from agents.ticket_agent import TicketAIAgent
+from table_db import (
+    AUTO_STATUS_AUTO_RESOLVED,
+    AUTO_STATUS_MANAGER_REVIEWED,
+    get_all_tickets_df,
+    get_invoices_df,
+    update_multiple_fields,
+)
+from agents.ticket_agent import TicketAIAgent, send_requester_resolution_email
 from agents.chat_agent import ChatAIAgent
 from logger_utils import log_chat_interaction
 import matplotlib
@@ -47,6 +53,14 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+def fetch_ticket_record(ticket_id: str):
+    df = get_all_tickets_df()
+    mask = df["Ticket ID"].astype(str).str.strip() == str(ticket_id).strip()
+    if not mask.any():
+        return None
+    return df[mask].iloc[0].to_dict()
 
 
 def plot_to_img(fig):
@@ -316,10 +330,10 @@ def review_ticket_action(ticket_id):
     updates = {}
     if action == "reopen":
         updates["Ticket Status"] = "Open"
-        updates["Auto Solved"] = False  # Remove from review list
+        updates["Auto Solved"] = AUTO_STATUS_MANAGER_REVIEWED  # Remove from review list
         flash(f"Ticket {ticket_id} has been reopened.", "success")
     elif action == "confirm_closed":
-        updates["Auto Solved"] = False  # Remove from review list
+        updates["Auto Solved"] = AUTO_STATUS_MANAGER_REVIEWED  # Remove from review list
         flash(f"Ticket {ticket_id} confirmed closed – won't show again.", "info")
     else:
         flash("Invalid action.", "danger")
@@ -439,7 +453,8 @@ def dashboard():
 
         auto_resolved = 0
         if "Auto Solved" in filtered_tickets.columns:
-            auto_resolved = len(filtered_tickets[filtered_tickets["Auto Solved"] == True])
+            status_series = filtered_tickets["Auto Solved"].astype(str).str.strip()
+            auto_resolved = int(status_series.isin([AUTO_STATUS_AUTO_RESOLVED, AUTO_STATUS_MANAGER_REVIEWED]).sum())
 
         ap_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Payable"])
         ar_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Receivable"])
@@ -454,9 +469,12 @@ def dashboard():
         review_tickets = []
         if "Auto Solved" in df_tickets.columns:
             try:
-                review_tickets = df_tickets[
-                    df_tickets["Auto Solved"] == True
-                    ].sort_values("Ticket Closed Date", ascending=False).to_dict(orient="records")
+                auto_status = df_tickets["Auto Solved"].astype(str).str.strip()
+                current_status = df_tickets["Ticket Status"].astype(str).str.strip().str.lower()
+                review_mask = (auto_status == AUTO_STATUS_AUTO_RESOLVED) & (current_status == "pending manager approval")
+                review_tickets = df_tickets[review_mask] \
+                    .sort_values("Ticket Closed Date", ascending=False) \
+                    .to_dict(orient="records")
             except Exception as e:
                 print(f"Error filtering auto-solved tickets: {e}")
 
@@ -538,13 +556,19 @@ def approve_ticket(ticket_id):
     if not validate_token(ticket_id, token):
         return "❌ Invalid or expired approval link.", 403
 
+    ticket_record = fetch_ticket_record(ticket_id)
+    if not ticket_record:
+        return "❌ Ticket not found.", 404
+
     success = update_multiple_fields(ticket_id, {
         "Ticket Status": "Closed",
-        "Auto Solved": False,
-        "Admin Review Needed": "No"
+        "Auto Solved": AUTO_STATUS_MANAGER_REVIEWED,
+        "Admin Review Needed": "No",
+        "Ticket Closed Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
     if success:
+        send_requester_resolution_email(ticket_record, ticket_record.get("AI Response", ""))
         return f"""
         <h2>✅ Ticket {ticket_id} Approved</h2>
         <p>The ticket has been successfully closed.</p>
@@ -562,7 +586,7 @@ def reject_ticket(ticket_id):
     # Reopen ticket
     success = update_multiple_fields(ticket_id, {
         "Ticket Status": "Open",
-        "Auto Solved": False,
+        "Auto Solved": AUTO_STATUS_MANAGER_REVIEWED,
         "Admin Review Needed": "No"
     })
 

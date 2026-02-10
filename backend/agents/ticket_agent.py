@@ -3,11 +3,61 @@ import secrets
 import os
 import json
 from datetime import datetime
+
+import pandas as pd
 from openai import AzureOpenAI
 from utils import get_user_email_by_name, get_manager_by_team
 from email_service import send_email
 from config import get_azure_client, get_deployment_name
-from table_db import get_all_tickets_df, search_invoices, update_multiple_fields
+from table_db import (
+    AUTO_STATUS_AUTO_RESOLVED,
+    AUTO_STATUS_MANUAL_REVIEW,
+    get_all_tickets_df,
+    search_invoices,
+    update_multiple_fields,
+)
+
+APPROVAL_KEYWORDS = {
+    "ap": [
+        "validate vendor",
+        "vendor detail",
+        "early payment",
+        "invoice on hold",
+    ],
+    "ar": [
+        "refund ticket",
+        "raise refund",
+        "investigate customer",
+        "cancellation reason",
+        "block invoice",
+    ],
+}
+
+
+def send_requester_resolution_email(ticket: dict, ai_response: str) -> bool:
+    """Notify the employee who raised the ticket."""
+    requester_name = ticket.get("User Name", "there")
+    requester_email = get_user_email_by_name(requester_name)
+    if not requester_email:
+        print(f"INFO: No email found for requester '{requester_name}'")
+        return False
+
+    ticket_id = ticket.get("Ticket ID", "N/A")
+    body = f"""Hello {requester_name},
+
+{ai_response or 'Your ticket has been processed by the EY Query Management Agent.'}
+
+Ticket ID: {ticket_id}
+Status: Closed
+
+Regards,
+EY Query Management System
+"""
+    return send_email(
+        to_email=requester_email,
+        subject=f"Ticket {ticket_id} Resolved",
+        body=body,
+    )
 
 # ────────────────────────────────────────────────
 # Approval Token Generator (Email Approval Flow)
@@ -81,6 +131,22 @@ class TicketAIAgent:
             }
         ]
 
+    def needs_manager_approval(self, ticket: dict) -> bool:
+        team = str(ticket.get("Assigned Team", "")).lower()
+        ticket_type = str(ticket.get("Ticket Type", "")).lower()
+        description = str(ticket.get("Description", "")).lower()
+
+        def matches(keywords):
+            return any(keyword in description for keyword in keywords)
+
+        if "accounts payable" in ticket_type or "ap" in team:
+            if matches(APPROVAL_KEYWORDS["ap"]):
+                return True
+        if "accounts receivable" in ticket_type or "ar" in team:
+            if matches(APPROVAL_KEYWORDS["ar"]):
+                return True
+        return False
+
     def process_ticket(self, ticket):
         ticket_id = str(ticket.get("Ticket ID"))
         description = str(ticket.get("Description", "No description provided."))
@@ -134,46 +200,41 @@ class TicketAIAgent:
                 elif func_name == "resolve_ticket":
 
                     print(f"DEBUG: AI is calling resolve_ticket...")
-
                     print(f"   - Auto Solved: {args.get('auto_solved')}")
-
                     print(f"   - Response: {args.get('ai_response')}")
 
-                    # 1️⃣ Prepare update data
-
+                    requires_approval = self.needs_manager_approval(ticket)
+                    auto_solved = bool(args.get("auto_solved"))
                     update_dict = {
-
-                        "Auto Solved": args['auto_solved'],
-
-                        "AI Response": args['ai_response'],
-
+                        "Auto Solved": AUTO_STATUS_AUTO_RESOLVED if auto_solved else AUTO_STATUS_MANUAL_REVIEW,
+                        "AI Response": args["ai_response"],
                     }
 
-                    if args.get('auto_solved', False):
-                        update_dict["Ticket Status"] = "Pending Manager Approval"
-
-                        update_dict["Admin Review Needed"] = "Yes"
+                    if auto_solved:
+                        if requires_approval:
+                            update_dict["Ticket Status"] = "Pending Manager Approval"
+                            update_dict["Admin Review Needed"] = "Yes"
+                        else:
+                            update_dict["Ticket Status"] = "Closed"
+                            update_dict["Admin Review Needed"] = "No"
+                            update_dict["Ticket Closed Date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        update_dict["Ticket Status"] = "Awaiting Manual Review"
 
                     # 2️⃣ Update Excel FIRST
-
                     success = update_multiple_fields(ticket_id, update_dict)
 
                     # 3️⃣ Fetch manager AFTER update
 
                     manager = get_manager_by_team(ticket.get("Assigned Team"))
 
-                    # 4️⃣ Send approval email
-
-                    if manager and args.get('auto_solved', False):
-                        token = generate_approval_token(ticket_id)
-
-                        base_url = os.getenv("APP_BASE_URL", "http://localhost:5000")
-
-                        approve_link = f"{base_url}/ticket/approve/{ticket_id}?token={token}"
-
-                        reject_link = f"{base_url}/ticket/reject/{ticket_id}?token={token}"
-
-                        email_body = f"""Hello {manager['name']},
+                    if success:
+                        if requires_approval and manager and auto_solved:
+                            token = generate_approval_token(ticket_id)
+                            base_url = os.getenv("APP_BASE_URL", "http://localhost:5000")
+                            approve_link = f"{base_url}/ticket/approve/{ticket_id}?token={token}"
+                            reject_link = f"{base_url}/ticket/reject/{ticket_id}?token={token}"
+                            email_body = f"""Hello {manager['name']},
 
 
                 The AI agent has resolved the following ticket and is requesting your approval.
@@ -212,24 +273,20 @@ class TicketAIAgent:
 
                 """
 
-                        send_email(
+                            send_email(
 
-                            to_email=manager['email'],
+                                to_email=manager['email'],
 
-                            subject=f"Approval Required: Ticket {ticket_id}",
+                                subject=f"Approval Required: Ticket {ticket_id}",
 
-                            body=email_body
+                                body=email_body
 
-                        )
-
-                    # 5️⃣ Logging
-
-                    if success:
+                            )
+                        elif auto_solved and not requires_approval:
+                            send_requester_resolution_email(ticket, args["ai_response"])
 
                         print(f"SUCCESS: Ticket {ticket_id} updated in Excel.")
-
                     else:
-
                         print(f"ERROR: Failed to update ticket {ticket_id} in Excel.")
 
                     return f"Ticket {ticket_id} resolved: {args['ai_response']}"
@@ -238,7 +295,21 @@ class TicketAIAgent:
 
     def run_on_all_open_tickets(self):
         df = get_all_tickets_df()
-        open_tickets = df[df["Ticket Status"] != "Closed"]
+        status_series = df.get("Ticket Status", pd.Series("", index=df.index)).astype(str).str.lower()
+        open_mask = status_series != "closed"
+
+        if "Auto Solved" in df.columns:
+            auto_col = df["Auto Solved"]
+            if auto_col.dtype == object:
+                normalized = auto_col.astype(str).str.strip().str.lower()
+                untouched_mask = auto_col.isna() | normalized.isin(["", "nan", "none"])
+            else:
+                untouched_mask = auto_col.isna()
+        else:
+            untouched_mask = pd.Series(True, index=df.index)
+
+        target_mask = open_mask & untouched_mask
+        open_tickets = df[target_mask]
 
         results = []
         for index, row in open_tickets.iterrows():

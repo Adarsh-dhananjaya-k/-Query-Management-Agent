@@ -13,6 +13,10 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 FILE = os.path.join(BASE_DIR, "data", "QMT Data New.xlsx")
 
+AUTO_STATUS_AUTO_RESOLVED = "AI Auto-Resolved"
+AUTO_STATUS_MANUAL_REVIEW = "AI Attempted - Manual Review"
+AUTO_STATUS_MANAGER_REVIEWED = "Manager Reviewed"
+
 if not os.path.exists(FILE):
     raise FileNotFoundError(f"Excel file not found at: {FILE}")
 
@@ -112,7 +116,7 @@ def ensure_required_columns(df):
     if "Ticket Updated Date" not in df.columns:
         df["Ticket Updated Date"] = pd.NA
     if "Auto Solved" not in df.columns:
-        df["Auto Solved"] = False
+        df["Auto Solved"] = ""
     if "AI Response" not in df.columns:
         df["AI Response"] = ""
     return df
@@ -194,7 +198,8 @@ def update_ticket(ticket_id: str, field: str, value: any) -> bool:
 
 
 def add_auto_solved_flag(ticket_id: str, is_auto: bool = True) -> bool:
-    return update_ticket(ticket_id, "Auto Solved", is_auto)
+    value = AUTO_STATUS_AUTO_RESOLVED if is_auto else AUTO_STATUS_MANUAL_REVIEW
+    return update_ticket(ticket_id, "Auto Solved", value)
 
 
 def get_team_list(team_name: any = None) -> list:
@@ -256,7 +261,8 @@ def get_kpi_metrics(team_name: str = None) -> dict:
     metrics["Tickets By Type"] = type_counts
 
     # 2. Auto Resolved
-    metrics["Auto Solved Count"] = int(df["Auto Solved"].sum())
+    auto_status = df["Auto Solved"].astype(str).str.strip()
+    metrics["Auto Solved Count"] = int(auto_status.isin([AUTO_STATUS_AUTO_RESOLVED, AUTO_STATUS_MANAGER_REVIEWED]).sum())
 
     # 3. Handled by each employee
     metrics["Tickets By Employee"] = df["User Name"].value_counts().to_dict()
