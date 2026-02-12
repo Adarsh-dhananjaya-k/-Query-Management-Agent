@@ -1,12 +1,18 @@
-# app.py
+
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
-from table_db import get_all_tickets_df, get_invoices_df, update_multiple_fields
-from agents.ticket_agent import TicketAIAgent
+from table_db import (
+    AUTO_STATUS_AUTO_RESOLVED,
+    AUTO_STATUS_MANAGER_REVIEWED,
+    get_all_tickets_df,
+    get_invoices_df,
+    update_multiple_fields,
+)
+from agents.ticket_agent import TicketAIAgent, send_requester_resolution_email
 from agents.chat_agent import ChatAIAgent
 from logger_utils import log_chat_interaction
 import matplotlib
 
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
 import io
 import base64
@@ -16,6 +22,7 @@ import pandas as pd
 import os
 import json
 import threading
+import hashlib
 
 app = Flask(__name__,
             template_folder='../frontend/templates',
@@ -23,12 +30,36 @@ app = Flask(__name__,
 
 app.secret_key = "ey_demo_secret_key_2025_super_secret"
 
-# Users file
+# Users file path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE = os.path.join(BASE_DIR, "user.json")
+CHAT_HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
+
+
+def _load_all_histories():
+    if os.path.exists(CHAT_HISTORY_FILE):
+        try:
+            with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def get_user_chat_history(user_email):
+    histories = _load_all_histories()
+    return histories.get(user_email, [])
+
+
+def save_user_chat_history(user_email, history):
+    histories = _load_all_histories()
+    histories[user_email] = history
+    with open(CHAT_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(histories, f, ensure_ascii=False, indent=2)
 
 
 def load_users():
+    """Load users from user.json or return fallback defaults."""
     if os.path.exists(USERS_FILE):
         try:
             with open(USERS_FILE, 'r', encoding='utf-8') as f:
@@ -36,7 +67,6 @@ def load_users():
         except json.JSONDecodeError:
             flash("Error reading user.json - file may be corrupted.", "danger")
             return []
-    # Default fallback users
     return [
         {"email": "admin@ey.com", "password": "123", "role": "admin", "name": "System Admin"},
         {"email": "manager@ey.com", "password": "123", "role": "manager", "name": "Operations Manager"},
@@ -45,11 +75,24 @@ def load_users():
 
 
 def save_users(users):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    """Save users list back to user.json."""
+    try:
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Failed to save users: {e}")
+
+
+def fetch_ticket_record(ticket_id: str):
+    df = get_all_tickets_df()
+    mask = df["Ticket ID"].astype(str).str.strip() == str(ticket_id).strip()
+    if not mask.any():
+        return None
+    return df[mask].iloc[0].to_dict()
 
 
 def plot_to_img(fig):
+    """Convert matplotlib figure to base64 PNG string."""
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', dpi=120)
     buf.seek(0)
@@ -70,7 +113,7 @@ def login():
         password = request.form.get("password", "").strip()
 
         users = load_users()
-        user = next((u for u in users if u["email"] == email and u["password"] == password), None)
+        user = next((u for u in users if u.get("email") == email and u.get("password") == password), None)
 
         if user:
             session["user"] = {
@@ -109,19 +152,19 @@ def require_login():
 @app.route("/home")
 def role_home():
     user = session.get("user", {})
-    role = user.get("role")
+    role = user.get("role", "").lower()
 
-    if role == "admin" or role == "manager":
+    if role in ["admin", "manager"]:
         return redirect(url_for("chat_home"))
     elif role == "employee":
         return redirect(url_for("employee_home"))
     else:
-        flash("Invalid role.", "danger")
+        flash("Invalid or missing role.", "danger")
         return redirect(url_for("logout"))
 
 
 # ────────────────────────────────────────────────
-# Chat UI with AI Agent Integration
+# Chat UI with AI Agent
 # ────────────────────────────────────────────────
 
 @app.route("/", methods=["GET", "POST"])
@@ -131,10 +174,7 @@ def chat_home():
     if not user:
         return redirect(url_for("login"))
 
-    if "chat_history" not in session:
-        session["chat_history"] = []
-
-    chat_history = session["chat_history"]
+    chat_history = get_user_chat_history(user["email"])
     error = None
 
     if request.method == "POST":
@@ -146,20 +186,22 @@ def chat_home():
 
                 log_chat_interaction(user, user_msg, ai_response)
 
-                session["chat_history"] = updated_history
+                save_user_chat_history(user["email"], updated_history)
                 session["last_token_usage"] = total_tokens
                 session.modified = True
 
             except Exception as e:
-                print(f"Chat Error: {str(e)}")
+                print(f"Chat processing error: {str(e)}")
                 traceback.print_exc()
-                flash("Sorry, I encountered an error. Please check your AI configuration.", "danger")
+                flash("Sorry, an error occurred while processing your message.", "danger")
         else:
-            flash("Please type a message.", "warning")
+            flash("Please enter a message.", "warning")
 
     display_history = [
-        msg for msg in session.get("chat_history", [])
-        if msg.get("role") in ["user", "assistant"] and msg.get("content") and msg["content"] != "None"
+        msg for msg in get_user_chat_history(user["email"])
+        if msg.get("role") in ["user", "assistant"]
+           and msg.get("content")
+           and msg["content"] not in ["None", ""]
     ]
 
     return render_template("chat.html",
@@ -172,38 +214,42 @@ def chat_home():
 
 @app.route("/new_session")
 def new_session():
-    session["chat_history"] = []
-    session.modified = True
-    flash("Chat history cleared.", "success")
+    user = session.get("user")
+    if user:
+        save_user_chat_history(user["email"], [])
+    flash("New chat session started.", "success")
     return redirect(url_for("chat_home"))
 
+
+# ────────────────────────────────────────────────
+# Background Ticket Processing
+# ────────────────────────────────────────────────
 
 @app.route("/process_tickets")
 def process_tickets():
     if session.get("user", {}).get("role") not in ["admin", "manager"]:
-        flash("Access denied.", "danger")
+        flash("Only admins and managers can trigger ticket processing.", "danger")
         return redirect(url_for("role_home"))
 
     def run_agent_job():
         try:
-            print("🚀 Starting background ticket processing...")
+            print("Starting background AI ticket processing...")
             agent = TicketAIAgent()
             results = agent.run_on_all_open_tickets()
-            print(f"✅ Background processing complete. Processed {len(results)} tickets.")
+            print(f"Ticket processing complete. Processed {len(results)} tickets.")
         except Exception as e:
-            print(f"❌ Background processing failed: {e}")
+            print(f"Background ticket processing failed: {e}")
             traceback.print_exc()
 
-    thread = threading.Thread(target=run_agent_job)
-    thread.daemon = True
+    thread = threading.Thread(target=run_agent_job, daemon=True)
     thread.start()
 
-    flash("AI Agent started processing tickets in the background. Check logs for progress.", "info")
+    flash("AI ticket processing started in the background.", "info")
     return redirect(url_for("dashboard"))
 
 
 # ────────────────────────────────────────────────
-# Auto-Assign Open Tickets (balanced workload + detailed summary)
+# Auto-Assign Tickets
 # ────────────────────────────────────────────────
 
 @app.route("/auto_assign_tickets")
@@ -215,128 +261,110 @@ def auto_assign_tickets():
 
     try:
         df = get_all_tickets_df()
-
         open_tickets = df[df["Ticket Status"].str.lower() == "open"].copy()
 
         if open_tickets.empty:
-            flash("No open tickets to assign.", "info")
+            flash("No open tickets available to assign.", "info")
             return redirect(url_for("dashboard"))
 
-        users = df["User Name"].dropna().unique().tolist()
-
-        if not users:
+        assignees = df["User Name"].dropna().unique().tolist()
+        if not assignees:
             flash("No users available for assignment.", "danger")
             return redirect(url_for("dashboard"))
 
-        # Track assignments for summary
-        assignment_summary = {u: 0 for u in users}
-
-        # Current workload
-        workload = {}
-        for u in users:
-            workload[u] = len(df[(df["User Name"] == u) & (df["Ticket Status"].str.lower() == "open")])
-
-        # Sort users by current workload (lowest first)
+        workload = {u: len(df[(df["User Name"] == u) & (df["Ticket Status"].str.lower() == "open")]) for u in assignees}
         sorted_users = sorted(workload, key=workload.get)
 
+        assignment_summary = {u: 0 for u in assignees}
         assigned_count = 0
+
         for i, (_, row) in enumerate(open_tickets.iterrows()):
-            user_index = i % len(sorted_users)
-            assigned_user = sorted_users[user_index]
-
-            update_multiple_fields(row["Ticket ID"], {
-                "User Name": assigned_user,
-                # "User ID": ... (add lookup if needed)
-            })
-
-            assignment_summary[assigned_user] += 1
-            workload[assigned_user] += 1
+            assignee = sorted_users[i % len(sorted_users)]
+            update_multiple_fields(row["Ticket ID"], {"User Name": assignee})
+            assignment_summary[assignee] += 1
+            workload[assignee] += 1
             assigned_count += 1
 
-        # Build nice summary message
-        summary_lines = [f"{user}: {count} ticket{'s' if count != 1 else ''}"
-                         for user, count in assignment_summary.items() if count > 0]
-
-        summary_text = f"Auto-assignment complete! Total open tickets assigned: {assigned_count} - " + \
-                       " - ".join(summary_lines)
-
-        flash(summary_text, "success")
+        summary = ", ".join([f"{u}: {c}" for u, c in assignment_summary.items() if c > 0])
+        flash(f"Auto-assignment complete! {assigned_count} tickets assigned. ({summary})", "success")
 
     except Exception as e:
         flash(f"Auto-assignment failed: {str(e)}", "danger")
 
     return redirect(url_for("dashboard"))
 
+
 def auto_assign_single_ticket(ticket_id):
-    """
-    Assigns a single open ticket to the user with the lowest open-ticket workload
-    """
-    df = get_all_tickets_df()
+    try:
+        df = get_all_tickets_df()
+        users = df["User Name"].dropna().unique().tolist()
+        if not users:
+            return None
 
-    # Get all users
-    users = df["User Name"].dropna().unique().tolist()
-    if not users:
+        workload = {
+            user: len(df[(df["User Name"] == user) & (df["Ticket Status"].str.lower() == "open")])
+            for user in users
+        }
+
+        if not workload:
+            return None
+
+        assigned_user = min(workload, key=workload.get)
+        success = update_multiple_fields(ticket_id, {"User Name": assigned_user})
+
+        return assigned_user if success else None
+
+    except Exception as e:
+        print(f"Single ticket auto-assign failed: {e}")
         return None
-
-    # Calculate current open-ticket workload
-    workload = {
-        user: len(
-            df[
-                (df["User Name"] == user) &
-                (df["Ticket Status"].str.lower() == "open")
-            ]
-        )
-        for user in users
-    }
-
-    # Pick user with lowest workload
-    assigned_user = min(workload, key=workload.get)
-
-    # Update ticket
-    update_multiple_fields(ticket_id, {
-        "User Name": assigned_user
-    })
-
-    return assigned_user
 
 
 # ────────────────────────────────────────────────
-# Handle Reopen / Confirm Closed for AI-closed tickets
+# Manager/Admin Review of AI-resolved Tickets (from dashboard)
 # ────────────────────────────────────────────────
 
 @app.route("/review_ticket_action/<ticket_id>", methods=["POST"])
 def review_ticket_action(ticket_id):
-    user = session.get("user", {})
-    if user.get("role") not in ["admin", "manager"]:
-        flash("Only admins/managers can review tickets.", "danger")
+    if session.get("user", {}).get("role") not in ["manager", "admin"]:
+        flash("Only managers/admins can review tickets.", "danger")
         return redirect(url_for("dashboard"))
 
     action = request.form.get("action")
 
     updates = {}
-    if action == "reopen":
+    message = ""
+
+    if action == "confirm_closed":
+        updates["Auto Solved"] = False
+        updates["Admin Review Needed"] = "No"
+        message = f"Ticket {ticket_id} confirmed closed – no longer pending review."
+    elif action == "reopen":
         updates["Ticket Status"] = "Open"
-        updates["Auto Solved"] = False  # Remove from review list
-        flash(f"Ticket {ticket_id} has been reopened.", "success")
-    elif action == "confirm_closed":
-        updates["Auto Solved"] = False  # Remove from review list
-        flash(f"Ticket {ticket_id} confirmed closed – won't show again.", "info")
+        updates["Auto Solved"] = False
+        updates["Admin Review Needed"] = "No"
+        message = f"Ticket {ticket_id} has been reopened."
+        
+        assigned_user = auto_assign_single_ticket(ticket_id)
+        if assigned_user:
+            message += f" Auto-assigned to {assigned_user}."
+        else:
+            message += " Could not auto-assign at this time."
     else:
-        flash("Invalid action.", "danger")
+        flash("Invalid action selected.", "danger")
         return redirect(url_for("dashboard"))
 
     success = update_multiple_fields(ticket_id, updates)
+
     if success:
-        print(f"DEBUG: Ticket {ticket_id} updated successfully.")
+        flash(message, "success")
     else:
-        print(f"ERROR: Failed to update ticket {ticket_id}.")
-        flash("Failed to update ticket in Excel.", "danger")
+        flash(f"Failed to update ticket {ticket_id} in the database.", "danger")
 
     return redirect(url_for("dashboard"))
 
 
 # ────────────────────────────────────────────────
-# Admin Dashboard – Add User
+# Admin Dashboard – User Management
 # ────────────────────────────────────────────────
 
 @app.route("/admin_dashboard", methods=["GET", "POST"])
@@ -356,13 +384,12 @@ def admin_dashboard():
             role = request.form.get("role", "")
             team = request.form.get("team", "").strip()
 
-            if not all([email, password, name, role, team]):
-                flash("All fields are required.", "danger")
+            if not all([email, password, name, role]):
+                flash("Required fields missing.", "danger")
             elif any(u["email"] == email for u in users):
                 flash("Email already exists.", "danger")
             else:
                 team_val = [t.strip() for t in team.split(",") if t.strip()] if role == "admin" else team
-
                 new_user = {
                     "email": email,
                     "password": password,
@@ -370,46 +397,46 @@ def admin_dashboard():
                     "role": role,
                     "team": team_val
                 }
-
                 users.append(new_user)
                 save_users(users)
-                flash(f"User '{name}' ({role}) added successfully!", "success")
+                flash(f"User '{name}' ({role}) added successfully.", "success")
 
     return render_template("admin_dashboard.html", users=users)
 
 
 # ────────────────────────────────────────────────
-# Employee Home
+# Employee Dashboard
 # ────────────────────────────────────────────────
 
 @app.route("/employee_home")
 def employee_home():
-    if session.get("user", {}).get("role") != "employee":
+    user = session.get("user", {})
+    if user.get("role") != "employee":
         flash("Access denied.", "danger")
         return redirect(url_for("role_home"))
 
-    user_name = session["user"]["name"].strip().lower()
+    user_name = user["name"].strip().lower()
 
     df = get_all_tickets_df()
     my_tickets = df[
         (df["User Name"].str.strip().str.lower() == user_name) &
         (df["Ticket Status"] != "Closed")
-        ]
+    ]
 
     return render_template("employee_dashboard.html",
                            my_tickets=my_tickets.to_dict(orient='records'),
-                           user_name=session["user"]["name"])
+                           user_name=user["name"])
 
 
 # ────────────────────────────────────────────────
-# Manager/Admin Dashboard
+# Manager / Admin Dashboard (Main KPI View)
 # ────────────────────────────────────────────────
 
 @app.route("/dashboard")
 def dashboard():
     user = session.get("user", {})
     if user.get("role") not in ["manager", "admin"]:
-        flash("Access denied. Dashboard is for managers and admins only.", "danger")
+        flash("Dashboard access restricted to managers and admins.", "danger")
         return redirect(url_for("role_home"))
 
     try:
@@ -439,7 +466,8 @@ def dashboard():
 
         auto_resolved = 0
         if "Auto Solved" in filtered_tickets.columns:
-            auto_resolved = len(filtered_tickets[filtered_tickets["Auto Solved"] == True])
+            status_series = filtered_tickets["Auto Solved"].astype(str).str.strip()
+            auto_resolved = int(status_series.isin([AUTO_STATUS_AUTO_RESOLVED, AUTO_STATUS_MANAGER_REVIEWED]).sum())
 
         ap_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Payable"])
         ar_tickets = len(filtered_tickets[filtered_tickets["Ticket Type"] == "Accounts Receivable"])
@@ -450,19 +478,15 @@ def dashboard():
             "auto_resolved": round(auto_resolved / closed_tickets * 100, 1) if closed_tickets else 0
         }
 
-        # Review tickets: all where Auto Solved is True
         review_tickets = []
         if "Auto Solved" in df_tickets.columns:
-            try:
-                review_tickets = df_tickets[
-                    df_tickets["Auto Solved"] == True
-                    ].sort_values("Ticket Closed Date", ascending=False).to_dict(orient="records")
-            except Exception as e:
-                print(f"Error filtering auto-solved tickets: {e}")
+            review_tickets = df_tickets[
+                df_tickets["Auto Solved"] == True
+            ].sort_values("Ticket Updated Date", ascending=False).to_dict(orient="records")
 
         total_invoices = len(df_invoices)
-        unpaid_invoices = len(df_invoices[df_invoices.get("Payment Status", "") == "Unpaid"])
         paid_invoices = len(df_invoices[df_invoices.get("Payment Status", "") == "Paid"])
+        unpaid_invoices = len(df_invoices[df_invoices.get("Payment Status", "") == "Unpaid"])
         total_amount = df_invoices["Invoice Amount"].sum()
         unpaid_amount = df_invoices[df_invoices["Payment Status"] == "Unpaid"]["Invoice Amount"].sum()
 
@@ -471,7 +495,7 @@ def dashboard():
             (df_invoices["Payment Status"] == "Unpaid") &
             (df_invoices["Due Date"].notna()) &
             (df_invoices["Due Date"] < today)
-            ]
+        ]
         overdue_count = len(overdue)
 
         teams = sorted(df_tickets["Assigned Team"].dropna().unique())
@@ -487,15 +511,57 @@ def dashboard():
         team_type = filtered_tickets.groupby(["Assigned Team", "Ticket Type"]).size().unstack(fill_value=0)
         fig2, ax2 = plt.subplots(figsize=(7, 5))
         team_type.plot(kind="bar", ax=ax2, color=["#1f77b4", "#ff7f0e"])
-        ax2.set_title("Tickets by Team & Type (filtered)")
+        ax2.set_title("Tickets by Team & Type")
         ax2.set_ylabel("Count")
         plt.xticks(rotation=45)
         team_img = plot_to_img(fig2)
 
-        inv_status_counts = df_invoices["Payment Status"].value_counts()
-        fig3, ax3 = plt.subplots(figsize=(5, 5))
-        ax3.pie(inv_status_counts, labels=inv_status_counts.index, autopct='%1.1f%%', startangle=90)
-        ax3.set_title("Invoice Payment Status (all)")
+        # ───── Invoice status – horizontal bar chart (recommended long-term solution) ─────
+        inv_status_counts = df_invoices["Payment Status"].value_counts().sort_values(ascending=True)
+
+        fig3, ax3 = plt.subplots(figsize=(7.2, max(4, len(inv_status_counts) * 0.55)))  # adaptive height
+
+        bars = ax3.barh(
+            inv_status_counts.index,
+            inv_status_counts.values,
+            color='#4e79a7',          # professional blue
+            edgecolor='white',
+            height=0.72
+        )
+
+        # Add count labels on the bars
+        for bar in bars:
+            width = bar.get_width()
+            ax3.text(
+                width + max(inv_status_counts.max() * 0.015, 1),
+                bar.get_y() + bar.get_height()/2,
+                f'{int(width):,}' if width >= 10 else f'{width}',
+                va='center',
+                fontsize=10,
+                fontweight='medium'
+            )
+
+        # Optional: percentage labels further right
+        total = inv_status_counts.sum()
+        for i, v in enumerate(inv_status_counts.values):
+            pct = v / total * 100
+            ax3.text(
+                v + max(inv_status_counts.max() * 0.06, 3),
+                i,
+                f'{pct:.1f}%',
+                va='center',
+                fontsize=9,
+                color='#555',
+                fontweight='normal'
+            )
+
+        ax3.set_title("Invoice Payment Status", fontsize=13, pad=15, fontweight='semibold')
+        ax3.set_xlabel("Number of Invoices", fontsize=11)
+        ax3.grid(axis='x', linestyle='--', alpha=0.5, zorder=0)
+        ax3.set_axisbelow(True)
+        ax3.tick_params(axis='y', labelsize=10)
+        plt.tight_layout()
+
         inv_pie_img = plot_to_img(fig3)
 
         return render_template("manager_dashboard.html",
@@ -503,14 +569,16 @@ def dashboard():
                                auto_resolved=auto_resolved, ap_tickets=ap_tickets, ar_tickets=ar_tickets,
                                ticket_rates=ticket_rates,
                                total_invoices=total_invoices, paid_invoices=paid_invoices,
-                               unpaid_invoices=unpaid_invoices,
-                               total_amount=total_amount, unpaid_amount=unpaid_amount, overdue_count=overdue_count,
+                               unpaid_invoices=unpaid_invoices, total_amount=total_amount,
+                               unpaid_amount=unpaid_amount, overdue_count=overdue_count,
                                pie_img=pie_img, team_img=team_img, inv_pie_img=inv_pie_img,
                                teams=teams, users=users, types=types,
                                selected_team=selected_team, selected_user=selected_user, selected_type=selected_type,
                                review_tickets=review_tickets)
 
     except Exception as e:
+        print(f"Dashboard rendering error: {str(e)}")
+        traceback.print_exc()
         return render_template_string("""
         <div class="container my-5 text-center">
             <div class="alert alert-danger">
@@ -521,6 +589,7 @@ def dashboard():
             </div>
         </div>
         """, error=str(e), traceback=traceback.format_exc())
+
 
 import hashlib
 import os
@@ -538,19 +607,26 @@ def approve_ticket(ticket_id):
     if not validate_token(ticket_id, token):
         return "❌ Invalid or expired approval link.", 403
 
+    ticket_record = fetch_ticket_record(ticket_id)
+    if not ticket_record:
+        return "❌ Ticket not found.", 404
+
     success = update_multiple_fields(ticket_id, {
         "Ticket Status": "Closed",
-        "Auto Solved": False,
-        "Admin Review Needed": "No"
+        "Auto Solved": AUTO_STATUS_MANAGER_REVIEWED,
+        "Admin Review Needed": "No",
+        "Ticket Closed Date": datetime.now().strftime("%Y-%m-%d")
     })
 
     if success:
+        send_requester_resolution_email(ticket_record, ticket_record.get("AI Response", ""))
         return f"""
         <h2>✅ Ticket {ticket_id} Approved</h2>
         <p>The ticket has been successfully closed.</p>
         """
     else:
         return "❌ Failed to update ticket.", 500
+
 
 @app.route("/ticket/reject/<ticket_id>")
 def reject_ticket(ticket_id):
@@ -562,14 +638,14 @@ def reject_ticket(ticket_id):
     # Reopen ticket
     success = update_multiple_fields(ticket_id, {
         "Ticket Status": "Open",
-        "Auto Solved": False,
+        "Auto Solved": AUTO_STATUS_MANAGER_REVIEWED,
         "Admin Review Needed": "No"
     })
 
     if not success:
         return "❌ Failed to update ticket.", 500
 
-    # 🔥 NEW: auto-assign immediately
+    # Auto-assign immediately
     assigned_user = auto_assign_single_ticket(ticket_id)
 
     if assigned_user:
@@ -585,4 +661,5 @@ def reject_ticket(ticket_id):
 
 
 if __name__ == "__main__":
+    print("Starting Query Management Flask app...")
     app.run(debug=True, host='0.0.0.0', port=5000)

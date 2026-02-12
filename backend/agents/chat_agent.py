@@ -31,7 +31,7 @@ class ChatAIAgent:
             self.all_teams = []
 
         self.system_prompt = f"""
-        You are an EY Query Management Chat Assistant.
+        You are an Query Management Chat Assistant.
         Current User: {self.name}
         Role: {self.role}
         Team(s): {self.team_str}

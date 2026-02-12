@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Chat - EY Query Agent{% endblock %}
+{% block title %}Chat - Query Agent{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -334,7 +334,7 @@
     <main class="main-chat">
         <div class="chat-header">
             <div>
-                <h5>EY Query Agent</h5>
+                <h5>Query Agent</h5>
                 <small>Session: {{ current_session[:8] }}...</small>
             </div>
             <div class="d-flex gap-2 align-items-center">
@@ -361,7 +361,7 @@
             {% if chat_history %}
             {% for msg in chat_history %}
             <div class="message {% if msg.role == 'user' %}message-user{% else %}message-bot{% endif %}">
-                <div class="message-label">{{ 'You' if msg.role == 'user' else 'EY Agent' }}</div>
+                <div class="message-label">{{ 'You' if msg.role == 'user' else 'Agent' }}</div>
                 <div class="message-content" {% if msg.role !='user' %}data-raw="{{ msg.content }}" {% endif %}>
                     {{ msg.content | safe }}
                 </div>

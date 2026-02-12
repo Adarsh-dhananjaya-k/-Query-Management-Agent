@@ -164,23 +164,12 @@
         flex-wrap: wrap;
     }
 
-    /* Accordion Styling */
-    .accordion-button {
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .accordion-button:not(.collapsed) {
-        background-color: #fffbeb;
-        color: #92400e;
-        box-shadow: inset 0 -1px 0 rgba(0,0,0,.125);
-    }
-
-    .accordion-body {
-        background-color: #fdfaf5;
-    }
-
-    .accordion-item {
+    .ai-response {
+        max-height: 120px;
+        overflow-y: auto;
+        background: #fffbeb;
+        padding: 10px;
+        border-radius: 6px;
         border: 1px solid #ffeaa7;
     }
 </style>
@@ -218,7 +207,7 @@
             <select name="team_filter" class="form-select">
                 <option value="">All Teams</option>
                 {% for t in teams %}
-                <option value="{{ t }}" {% if t==selected_team %}selected{% endif %}>{{ t }}</option>
+                <option value="{{ t }}" {% if t == selected_team %}selected{% endif %}>{{ t }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -227,7 +216,7 @@
             <select name="user_filter" class="form-select">
                 <option value="">All Users</option>
                 {% for u in users %}
-                <option value="{{ u }}" {% if u==selected_user %}selected{% endif %}>{{ u }}</option>
+                <option value="{{ u }}" {% if u == selected_user %}selected{% endif %}>{{ u }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -236,7 +225,7 @@
             <select name="type_filter" class="form-select">
                 <option value="">All Types</option>
                 {% for typ in types %}
-                <option value="{{ typ }}" {% if typ==selected_type %}selected{% endif %}>{{ typ }}</option>
+                <option value="{{ typ }}" {% if typ == selected_type %}selected{% endif %}>{{ typ }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -280,75 +269,56 @@
     </div>
 </div>
 
-<!-- AI Auto-Closed Tickets – Accordion Style -->
+<!-- AI Auto-Closed Tickets – Review Section -->
 <h3 class="section-title">
     <span class="section-icon"><i class="fas fa-robot"></i></span>
-    AI Auto-Closed Tickets – Your Review
+    AI Auto-Closed Tickets – Pending Your Review
 </h3>
 
 {% if review_tickets and review_tickets|length > 0 %}
-<div class="accordion mb-5 shadow" id="aiReviewAccordion">
-    {% for ticket in review_tickets %}
-    <div class="accordion-item border-warning">
-        <h2 class="accordion-header" id="heading-{{ ticket['Ticket ID'] }}">
-            <button class="accordion-button collapsed fw-bold" type="button"
-                    data-bs-toggle="collapse"
-                    data-bs-target="#collapse-{{ ticket['Ticket ID'] }}"
-                    aria-expanded="false"
-                    aria-controls="collapse-{{ ticket['Ticket ID'] }}">
-                Ticket #{{ ticket['Ticket ID'] }} – Closed on {{ ticket.get('Ticket Closed Date', '—') }}
-            </button>
-        </h2>
-        <div id="collapse-{{ ticket['Ticket ID'] }}" class="accordion-collapse collapse"
-             aria-labelledby="heading-{{ ticket['Ticket ID'] }}"
-             data-bs-parent="#aiReviewAccordion">
-            <div class="accordion-body">
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <strong>Team:</strong> {{ ticket.get('Assigned Team', '—') }}
+<div class="table-responsive mb-5">
+    <table class="table table-hover table-bordered">
+        <thead class="table-warning">
+            <tr>
+                <th>Ticket ID</th>
+                <th>Description</th>
+                <th>AI Resolution</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ticket in review_tickets %}
+            <tr>
+                <td><strong>{{ ticket['Ticket ID'] }}</strong></td>
+                <td>{{ ticket.get('Description', '—')[:100] }}{% if ticket.get('Description', '')|length > 100 %}...{% endif %}</td>
+                <td>
+                    <div class="ai-response">
+                        {{ ticket.get('AI Response', 'No summary') | safe }}
                     </div>
-                    <div class="col-md-6">
-                        <strong>User:</strong> {{ ticket.get('User Name', '—') }}
-                    </div>
-                    <div class="col-md-6">
-                        <strong>Type:</strong> {{ ticket.get('Ticket Type', '—') }}
-                    </div>
-                    <div class="col-md-6">
-                        <strong>Closed Date:</strong> {{ ticket.get('Ticket Closed Date', '—') }}
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <strong>Description:</strong>
-                    <p class="mt-2">{{ ticket.get('Description', 'No description provided') }}</p>
-                </div>
-                <div class="mb-4">
-                    <strong>AI Resolution:</strong>
-                    <p class="mt-2">{{ ticket.get('AI Response', 'No summary provided') }}</p>
-                </div>
-                <hr>
-                <div class="d-flex gap-3 justify-content-end">
-                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST">
-                        <input type="hidden" name="action" value="reopen">
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-undo me-1"></i> Reopen Ticket
+                </td>
+                <td>
+                    <!-- Correct route name - make sure this matches your app.py -->
+                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST" class="d-inline">
+                        <button type="submit" name="action" value="confirm_closed" class="btn btn-sm btn-success me-1">
+                            <i class="fas fa-check"></i> Confirm Close
                         </button>
                     </form>
-                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST">
-                        <input type="hidden" name="action" value="confirm_closed">
-                        <button type="submit" class="btn btn-outline-secondary">
-                            <i class="fas fa-check me-1"></i> Confirm Closed
+                    <form action="{{ url_for('review_ticket_action', ticket_id=ticket['Ticket ID']) }}" method="POST" class="d-inline">
+                        <button type="submit" name="action" value="reopen" class="btn btn-sm btn-warning">
+                            <i class="fas fa-undo"></i> Reopen
                         </button>
                     </form>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% else %}
-<div class="alert alert-success mb-5">
-    <i class="fas fa-check-circle me-2"></i>
-    No AI-closed tickets waiting for your review.
+<div class="alert alert-success text-center mb-5">
+    <i class="fas fa-check-circle fa-2x me-2"></i>
+    <strong>No tickets pending review.</strong><br>
+    All AI-resolved tickets have been processed.
 </div>
 {% endif %}
 
@@ -391,19 +361,40 @@
     <div class="col-md-6">
         <div class="chart-card">
             <h5><i class="fas fa-chart-pie me-2 text-secondary"></i>Ticket Status Distribution</h5>
-            <img src="data:image/png;base64,{{ pie_img }}" alt="Ticket Status">
+            {% if pie_img %}
+            <img src="data:image/png;base64,{{ pie_img }}" alt="Ticket Status" class="img-fluid">
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-chart-pie fa-3x mb-3"></i><br>
+                No data available
+            </div>
+            {% endif %}
         </div>
     </div>
     <div class="col-md-6">
         <div class="chart-card">
             <h5><i class="fas fa-chart-bar me-2 text-secondary"></i>Tickets by Team & Type</h5>
-            <img src="data:image/png;base64,{{ team_img }}" alt="Team Chart">
+            {% if team_img %}
+            <img src="data:image/png;base64,{{ team_img }}" alt="Team Chart" class="img-fluid">
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-chart-bar fa-3x mb-3"></i><br>
+                No data available
+            </div>
+            {% endif %}
         </div>
     </div>
     <div class="col-md-6">
         <div class="chart-card">
             <h5><i class="fas fa-file-invoice me-2 text-secondary"></i>Invoice Payment Status</h5>
-            <img src="data:image/png;base64,{{ inv_pie_img }}" alt="Invoice Status">
+            {% if inv_pie_img %}
+            <img src="data:image/png;base64,{{ inv_pie_img }}" alt="Invoice Status" class="img-fluid">
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-file-invoice fa-3x mb-3"></i><br>
+                No data available
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
