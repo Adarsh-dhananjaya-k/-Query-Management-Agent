@@ -1,62 +1,195 @@
 [
-    {
-        "email": "admin@ey.com",
-        "password": "123",
-        "role": "admin",
-        "name": "System Admin",
-        "team": [
-            "AP",
-            "AR",
-            "IT"
-        ]
-    },
-    {
-        "email": "immansurjavid@gmail.com",
-        "password": "123",
-        "role": "manager",
-        "name": "Mansur",
-        "team": "AP"
-    },
-    {
-        "email": "21a32.mansur@sjec.ac.in",
-        "password": "123",
-        "name": "Robert Brown",
-        "role": "employee",
-        "team": "AP"
-    },
-    {
-        "email": "hdgamerscam@gmail.com",
-        "password": "123",
-        "name": "Michael Green",
-        "role": "employee",
-        "team": "AR"
-    },
-    {
-        "email": "laurascott@ey.com",
-        "password": "123",
-        "name": "Laura Scott",
-        "role": "employee",
-        "team": "AR"
-    },
-    {
-        "email": "aliciabrown@ey.com",
-        "password": "123",
-        "name": "Alicia Brown",
-        "role": "employee",
-        "team": "AR"
-    },
-    {
-        "email": "kevinhall@ey.com",
-        "password": "123",
-        "name": "Kevin Hall",
-        "role": "employee",
-        "team": "AR"
-    },
-    {
-        "email": "gracetaylor@ey.com",
-        "password": "123",
-        "name": "Grace Taylor",
-        "role": "employee",
-        "team": "AR"
-    }
+  {
+    "email": "admin@ey.com",
+    "password": "123",
+    "role": "admin",
+    "name": "System Admin",
+    "team": [
+      "AP Team",
+      "AR Team",
+      "IT"
+    ],
+    "User ID": null
+  },
+  {
+    "email": "adarshsurekha@gmail.com",
+    "password": "123",
+    "role": "manager",
+    "name": "Mansur",
+    "team": [
+      "AP Team",
+      "AR Team"
+    ],
+    "User ID": null
+  },
+  {
+    "email": "alicia.brown+usr-006@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Alicia Brown",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-006"
+  },
+  {
+    "email": "alicia.brown+usr-011@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Alicia Brown",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-011"
+  },
+  {
+    "email": "amanda+usr-007@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Amanda",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-007"
+  },
+  {
+    "email": "brian+usr-016@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Brian",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-016"
+  },
+  {
+    "email": "grace.taylor+usr-005@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Grace Taylor",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-005"
+  },
+  {
+    "email": "grace.taylor+usr-013@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Grace Taylor",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-013"
+  },
+  {
+    "email": "kevin.hall+usr-004@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Kevin Hall",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-004"
+  },
+  {
+    "email": "kevin.hall+usr-012@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Kevin Hall",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-012"
+  },
+  {
+    "email": "laura+usr-014@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Laura",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-014"
+  },
+  {
+    "email": "laura.scott+usr-003@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Laura Scott",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-003"
+  },
+  {
+    "email": "laura.scott+usr-010@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Laura Scott",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-010"
+  },
+  {
+    "email": "megan+usr-015@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Megan",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-015"
+  },
+  {
+    "email": "michael.green+usr-002@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Michael Green",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-002"
+  },
+  {
+    "email": "michael.green+usr-009@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Michael Green",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-009"
+  },
+  {
+    "email": "robert.brown+usr-001@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Robert Brown",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-001"
+  },
+  {
+    "email": "robert.brown+usr-008@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Robert Brown",
+    "team": [
+      "AR Team"
+    ],
+    "User ID": "USR-008"
+  },
+  {
+    "email": "sara+usr-006@ey.com",
+    "password": "123",
+    "role": "employee",
+    "name": "Sara",
+    "team": [
+      "AP Team"
+    ],
+    "User ID": "USR-006"
+  }
 ]
