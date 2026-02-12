@@ -14,7 +14,7 @@ An intelligent, AI-driven web application for managing and resolving queries (ti
     *   **Employees**: View and create their own tickets.
     *   **Managers**: View team tickets, approve/reject resolutions, view analytics.
     *   **Admins**: Full system access.
-*   **Excel as Database**: Seamless integration with `QMT Data New.xlsx` for zero-setup data persistence.
+*   **Excel as Database**: Seamless integration with `QMT Data N.xlsx` for zero-setup data persistence.
 *   **Instant PDF Attachments**: Ticket agent can attach invoice summaries, payment confirmations, or detail sheets generated with lightweight `fpdf2` – no heavy native dependencies required.
 *   **Interactive Dashboards**: Data visualization for ticket status and team performance.
 
@@ -22,8 +22,8 @@ An intelligent, AI-driven web application for managing and resolving queries (ti
 
 *   **Backend**: Python, Flask
 *   **AI/LLM**: Azure OpenAI (GPT-4)
-*   **Database**: Excel (pandas, openpyxl)
-*   **Notifications**: SMTP Email Service (Gmail Integration)
+*   **Database**: Excel (pandas, openpyxl) — default workbook `data/QMT Data N.xlsx`
+*   **Notifications**: SMTP Email Service (Gmail Integration) with requestor-aware addressing
 *   **Reporting**: `fpdf2`-based PDF generator for invoice snapshots
 *   **Frontend**: HTML5, Bootstrap, Jinja2 Templates
 
@@ -63,8 +63,22 @@ EY-Project/
     ```
 4.  **Configure Environment**:
     *   Copy `backend/.env.example` to `backend/.env`.
-    *   Fill in your **Azure OpenAI** keys, **SMTP** credentials, and update `QMT_EXCEL_PATH` if your data file lives elsewhere (it accepts relative paths such as `data/QMT Data New.xlsx`).
+    *   Fill in your **Azure OpenAI** keys, **SMTP** credentials, and update `QMT_EXCEL_PATH` if your data file lives elsewhere (it accepts relative paths such as `data/QMT Data N.xlsx`).
     *   Optional: tweak `APP_BASE_URL` or `APPROVAL_SECRET` as needed for approval links.
+    *   Example `.env` entries:
+        ```ini
+        AZURE_OPENAI_ENDPOINT="https://your-endpoint.openai.azure.com/"
+        AZURE_OPENAI_API_KEY="your-azure-key"
+        AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4.1"
+        AZURE_OPENAI_API_VERSION="2024-02-15-preview"
+
+        SMTP_EMAIL="your-email@example.com"
+        SMTP_PASSWORD="app-password-generated-from-provider"
+
+        QMT_EXCEL_PATH="data/QMT Data N.xlsx"
+        APP_BASE_URL="http://localhost:5000"
+        APPROVAL_SECRET="ey_approval_secret"
+        ```
 
 ### Environment Variables
 
@@ -74,7 +88,7 @@ EY-Project/
 | `SMTP_EMAIL`, `SMTP_PASSWORD` | Credentials for the SMTP account that sends notifications and approval links. |
 | `APP_BASE_URL` | Base URL inserted into manager approve/reject links (defaults to `http://localhost:5000`). |
 | `APPROVAL_SECRET` | Shared secret used to generate approval tokens (defaults internally if omitted). |
-| `QMT_EXCEL_PATH` | Relative or absolute path to `QMT Data New.xlsx`. Set this if the file is relocated. |
+| `QMT_EXCEL_PATH` | Relative or absolute path to the tickets workbook (defaults to `data/QMT Data N.xlsx`). Set this if the file is relocated. |
 
 ## ▶️ Running the Application
 

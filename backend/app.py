@@ -1,4 +1,4 @@
-# app.py
+
 from flask import Flask, render_template, request, session, redirect, url_for, flash, render_template_string
 from table_db import (
     AUTO_STATUS_AUTO_RESOLVED,
@@ -298,7 +298,8 @@ def auto_assign_single_ticket(ticket_id):
         return None
 
 
-# ────────────────────────────────────────────────# Manager/Admin Review of AI-resolved Tickets (from dashboard)
+# ────────────────────────────────────────────────
+# Manager/Admin Review of AI-resolved Tickets (from dashboard)
 # ────────────────────────────────────────────────
 
 @app.route("/review_ticket_action/<ticket_id>", methods=["POST"])
@@ -494,10 +495,52 @@ def dashboard():
         plt.xticks(rotation=45)
         team_img = plot_to_img(fig2)
 
-        inv_status_counts = df_invoices["Payment Status"].value_counts()
-        fig3, ax3 = plt.subplots(figsize=(5, 5))
-        ax3.pie(inv_status_counts, labels=inv_status_counts.index, autopct='%1.1f%%', startangle=90)
-        ax3.set_title("Invoice Payment Status")
+        # ───── Invoice status – horizontal bar chart (recommended long-term solution) ─────
+        inv_status_counts = df_invoices["Payment Status"].value_counts().sort_values(ascending=True)
+
+        fig3, ax3 = plt.subplots(figsize=(7.2, max(4, len(inv_status_counts) * 0.55)))  # adaptive height
+
+        bars = ax3.barh(
+            inv_status_counts.index,
+            inv_status_counts.values,
+            color='#4e79a7',          # professional blue
+            edgecolor='white',
+            height=0.72
+        )
+
+        # Add count labels on the bars
+        for bar in bars:
+            width = bar.get_width()
+            ax3.text(
+                width + max(inv_status_counts.max() * 0.015, 1),
+                bar.get_y() + bar.get_height()/2,
+                f'{int(width):,}' if width >= 10 else f'{width}',
+                va='center',
+                fontsize=10,
+                fontweight='medium'
+            )
+
+        # Optional: percentage labels further right
+        total = inv_status_counts.sum()
+        for i, v in enumerate(inv_status_counts.values):
+            pct = v / total * 100
+            ax3.text(
+                v + max(inv_status_counts.max() * 0.06, 3),
+                i,
+                f'{pct:.1f}%',
+                va='center',
+                fontsize=9,
+                color='#555',
+                fontweight='normal'
+            )
+
+        ax3.set_title("Invoice Payment Status", fontsize=13, pad=15, fontweight='semibold')
+        ax3.set_xlabel("Number of Invoices", fontsize=11)
+        ax3.grid(axis='x', linestyle='--', alpha=0.5, zorder=0)
+        ax3.set_axisbelow(True)
+        ax3.tick_params(axis='y', labelsize=10)
+        plt.tight_layout()
+
         inv_pie_img = plot_to_img(fig3)
 
         return render_template("manager_dashboard.html",
@@ -525,6 +568,7 @@ def dashboard():
             </div>
         </div>
         """, error=str(e), traceback=traceback.format_exc())
+
 
 import hashlib
 import os
@@ -562,6 +606,7 @@ def approve_ticket(ticket_id):
     else:
         return "❌ Failed to update ticket.", 500
 
+
 @app.route("/ticket/reject/<ticket_id>")
 def reject_ticket(ticket_id):
     token = request.args.get("token")
@@ -579,7 +624,7 @@ def reject_ticket(ticket_id):
     if not success:
         return "❌ Failed to update ticket.", 500
 
-    # 🔥 NEW: auto-assign immediately
+    # Auto-assign immediately
     assigned_user = auto_assign_single_ticket(ticket_id)
 
     if assigned_user:
