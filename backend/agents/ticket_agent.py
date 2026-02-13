@@ -41,29 +41,41 @@ APPROVAL_KEYWORDS = {
 }
 
 
+def _safe_requestor_name(ticket: dict) -> str:
+    """
+    Safely extract the requestor's display name from the ticket dict.
+    The 'Requestor ' column (note trailing space) can be NaN (float) when empty,
+    so we must str()-cast before calling .strip().
+    """
+    raw = ticket.get("Requestor ") or ticket.get("Requestor") or ""
+    name = str(raw).strip()
+    return name if name and name.lower() not in ("nan", "none", "null") else "Requester"
+
+
 def send_requester_resolution_email(ticket: dict, ai_response: str) -> bool:
-    """Notify the employee who raised the ticket."""
-    
-    requester_name = ticket.get("User Name", "there")
-    requester_email = get_user_email_by_name(requester_name)
-    if not requester_email:
-        print(f"INFO: No email found for requester '{requester_name}'")
+    """
+    Called by app.py when a manager APPROVES a ticket (Category 3).
+    Sends the resolution update ONLY to the requestor (Requestor Email ID).
+    The internal employee is never emailed here.
+    """
+    requestor_email = get_requestor_email(ticket)
+    if not requestor_email:
+        print(f"INFO: No requestor email for ticket {ticket.get('Ticket ID', 'N/A')} — skipping approval notification")
         return False
 
-    ticket_id = ticket.get("Ticket ID", "N/A")
-    body = f"""Hello {requester_name},
+    ticket_id     = ticket.get("Ticket ID", "N/A")
+    requestor_name = _safe_requestor_name(ticket)
 
-{ai_response or 'Your ticket has been processed by the Query Management Agent.'}
-
-Ticket ID: {ticket_id}
-Status: Closed
-
-Regards,
-Query Management System
-"""
+    body = (
+        f"Dear {requestor_name},\n\n"
+        f"Your ticket {ticket_id} has been reviewed and approved by the manager.\n\n"
+        f"{ai_response or 'Your request has been processed.'}\n\n"
+        f"Status: Closed\n\n"
+        f"Best regards,\nQuery Management System"
+    )
     return send_email(
-        to_email=requester_email,
-        subject=f"Ticket {ticket_id} Resolved",
+        to_email=requestor_email,
+        subject=f"Ticket {ticket_id} - Approved & Closed",
         body=body,
     )
 
@@ -160,48 +172,48 @@ def generate_approval_token(ticket_id: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def get_submitter_email(ticket: dict) -> str | None:
+def get_requestor_email(ticket: dict) -> str | None:
     """
-    Get requester email with priority: Requestor Email columns → legacy requester fields → mapped employee fallback.
+    Return the email of the CUSTOMER / VENDOR who raised the ticket.
+
+    Excel column priority:
+      1. "Requestor Email ID"  ← primary column in QMT_Data sheet (may have trailing space)
+      2. Other legacy email column names
+    This function deliberately never touches "User Name" – that is the internal
+    employee and must NOT receive Cat 1 / Cat 2 emails.
     """
-    email_fields = [
-        "Requestor Email ID",
-        "Requestor Email",
-        "Requester Email",
-        "Submitter Email",
-        "Customer Email",
-        "Email",
-    ]
-    for field in email_fields:
-        raw_val = _get_ticket_field(ticket, field)
-        if raw_val:
-            email = str(raw_val).strip()
-            if email and email.lower() not in ["", "nan", "none", "null", "n/a"]:
-                return email
-
-    # Fallback to requestor name if present (sometimes listed without email)
-    requestor_name = (
-        _get_ticket_field(ticket, "Requestor")
-        or _get_ticket_field(ticket, "Requestor Name")
-        or _get_ticket_field(ticket, "Requester Name")
-    )
-    if requestor_name:
-        req_email = get_user_email_by_name(requestor_name)
-        if req_email:
-            return req_email
-
-    # Final fallback to internal employee associated with ticket
-    employee_name = (
-        _get_ticket_field(ticket, "User Name(Ticket Created By)")
-        or ticket.get("User Name")
-        or ticket.get("Assigned To")
-    )
-    if employee_name:
-        emp_email = get_user_email_by_name(employee_name)
-        if emp_email:
-            return emp_email
-
+    # Primary field (strip key to handle trailing-space column names)
+    for field in ["Requestor Email ID", "Requestor Email", "Requester Email",
+                  "Submitter Email", "Customer Email", "Email"]:
+        raw = _get_ticket_field(ticket, field)   # _get_ticket_field already strips + lowercases
+        if raw:
+            cleaned = str(raw).strip()
+            if cleaned and cleaned.lower() not in ["", "nan", "none", "null", "n/a"]:
+                return cleaned
     return None
+
+
+# Keep old name as alias so existing call-sites (e.g. app.py) don't break
+get_submitter_email = get_requestor_email
+
+
+def get_specialist_email(ticket: dict) -> tuple[str | None, str | None]:
+    """
+    Return (name, email) of the internal employee assigned to handle the ticket.
+    Maps to the "User Name" column – used ONLY for Cat 4 reassignment emails.
+    """
+    name = ticket.get("User Name", "")
+    if not name or str(name).strip().lower() in ["", "nan", "none", "n/a", "null", "unassigned"]:
+        return None, None
+    name = str(name).strip()
+    email = get_user_email_by_name(name)
+    return name, email
+
+
+# Keep old name as alias
+def get_assigned_employee_email(ticket: dict) -> str | None:
+    _, email = get_specialist_email(ticket)
+    return email
 
 
 class TicketAIAgent:
@@ -437,262 +449,300 @@ Requester emails mention that the attachment is generated from system records.
                 # TOOL 2: resolve_ticket (Categories 1, 2, 3)
                 # ═══════════════════════════════════════════════════════
                 elif func_name == "resolve_ticket":
-                    closure_type = args["closure_type"]
-                    ai_response = args.get("ai_response", "Ticket processed by AI.")
-                    auto_solved = args.get("auto_solved", True)
+                    closure_type  = args["closure_type"]
+                    ai_response   = args.get("ai_response", "Ticket processed by AI.")
                     document_type = args.get("document_type", "none")
 
                     print(f"✅ Resolving: {closure_type}")
                     if document_type != "none":
                         print(f"   📄 Document type: {document_type}")
 
-                    update_dict = {
-                        "Auto Solved": auto_solved,
-                        "AI Response": ai_response,
-                        "Ticket Updated Date": datetime.now().strftime("%Y-%m-%d")
-                    }
-
-                    email_subject = f"Ticket {ticket_id} - Update"
-                    email_body = ai_response
-                    recipient_email = None
-                    attachment_path = None
+                    now_str = datetime.now().strftime("%Y-%m-%d")
 
                     # ─────────────────────────────────────────────────────
                     # CATEGORY 3: needs_approval
+                    # Ticket goes Pending; only the MANAGER gets an email.
+                    # Requestor/employee are NOT emailed here.
                     # ─────────────────────────────────────────────────────
                     if closure_type == "needs_approval":
                         print(f"   ⏳ Pending manager approval")
-                        update_dict["Ticket Status"] = "Pending Manager Approval"
-                        update_dict["Admin Review Needed"] = "Yes"
-                        manager_note = ai_response
-                        user_placeholder = (
-                            f"Ticket {ticket_id} is pending manager review. "
-                            "We will notify you once a decision is made."
-                        )
-                        update_dict["AI Response"] = user_placeholder
+
+                        update_dict = {
+                            "Ticket Status":      "Pending Manager Approval",
+                            "Admin Review Needed": "Yes",
+                            "Auto Solved":         False,
+                            "AI Response":         (
+                                f"Ticket {ticket_id} is pending manager review. "
+                                "We will notify you once a decision is made."
+                            ),
+                            "Ticket Updated Date": now_str,
+                        }
 
                         manager = get_manager_by_team(ticket.get("Assigned Team"))
                         if manager:
-                            token = generate_approval_token(ticket_id)
-                            base_url = os.getenv("APP_BASE_URL", "http://localhost:5000")
+                            token        = generate_approval_token(ticket_id)
+                            base_url     = os.getenv("APP_BASE_URL", "http://localhost:5000")
                             approve_link = f"{base_url}/ticket/approve/{ticket_id}?token={token}"
-                            reject_link = f"{base_url}/ticket/reject/{ticket_id}?token={token}"
+                            reject_link  = f"{base_url}/ticket/reject/{ticket_id}?token={token}"
 
-                            email_body = f"""Hello {manager['name']},
-
-Ticket {ticket_id} requires your approval.
-
-Team: {ticket.get('Assigned Team', 'N/A')}
-Request: {description[:200]}...
-
-AI Analysis:
-{manager_note}
-
-Actions:
-→ APPROVE: {approve_link}
-→ REJECT: {reject_link}
-
-Best regards,
-Query Management AI Agent
-"""
                             send_email(
                                 to_email=manager["email"],
-                                subject=f"[APPROVAL] Ticket {ticket_id}",
-                                body=email_body
+                                subject=f"[APPROVAL REQUIRED] Ticket {ticket_id}",
+                                body=(
+                                    f"Hello {manager['name']},\n\n"
+                                    f"Ticket {ticket_id} requires your approval.\n\n"
+                                    f"Team: {ticket.get('Assigned Team', 'N/A')}\n"
+                                    f"Request: {description[:300]}\n\n"
+                                    f"AI Analysis:\n{ai_response}\n\n"
+                                    f"→ APPROVE: {approve_link}\n"
+                                    f"→ REJECT:  {reject_link}\n\n"
+                                    f"Best regards,\nQuery Management AI Agent"
+                                )
                             )
-                            print(f"   📧 Approval sent to {manager['name']}")
+                            print(f"   📧 Approval email sent → {manager['name']} ({manager['email']})")
+                        else:
+                            print(f"   ⚠️  No manager found for team: {ticket.get('Assigned Team')}")
+
+                        success = update_multiple_fields(ticket_id, update_dict)
+                        if success:
+                            print(f"✓ Ticket {ticket_id} set to Pending Manager Approval")
+                        else:
+                            print(f"✗ DB update failed")
+                        return f"Ticket {ticket_id}: needs_approval"
 
                     # ─────────────────────────────────────────────────────
-                    # CATEGORY 2: with_document (Invoice PDF attachments)
+                    # CATEGORY 2: with_document
+                    # Ticket CLOSES. Only the REQUESTOR (Requestor Email ID)
+                    # gets an email with the PDF attached.
                     # ─────────────────────────────────────────────────────
                     elif closure_type == "with_document":
-                        print(f"   📄 Generating AI document...")
-                        update_dict["Ticket Status"] = "Closed"
-                        recipient_email = get_submitter_email(ticket)
+                        print(f"   📄 Generating document and closing ticket...")
 
+                        update_dict = {
+                            "Ticket Status":      "Closed",
+                            "Ticket Closed Date": now_str,
+                            "Auto Solved":         AUTO_STATUS_AUTO_RESOLVED,
+                            "AI Response":         ai_response,
+                            "Ticket Updated Date": now_str,
+                        }
+
+                        # Resolve invoice data for PDF
                         invoice_payload = self._resolve_invoice_data_for_document(ticket, last_invoice_data)
-                        if invoice_payload and last_invoice_data is None:
-                            last_invoice_data = invoice_payload
 
+                        attachment_path = None
                         if DOCUMENTS_AVAILABLE and invoice_payload:
                             if document_type == "payment_confirmation":
-                                attachment_path = generate_payment_confirmation_pdf(
-                                    invoice_payload,
-                                    description,
-                                )
+                                attachment_path = generate_payment_confirmation_pdf(invoice_payload, description)
                             elif document_type == "invoice_details":
-                                attachment_path = generate_invoice_details_pdf(
-                                    invoice_payload,
-                                    description,
-                                )
-                            else:  # invoice_copy (default)
-                                attachment_path = generate_invoice_copy_pdf(
-                                    invoice_payload,
-                                    description,
-                                )
+                                attachment_path = generate_invoice_details_pdf(invoice_payload, description)
+                            else:
+                                attachment_path = generate_invoice_copy_pdf(invoice_payload, description)
 
                             if attachment_path:
-                                print(f"   ✓ Document: {os.path.basename(attachment_path)}")
-                                email_body = f"""Dear Requester,
-
-Your request for ticket {ticket_id} has been processed.
-
-{ai_response}
-
-We attached the latest invoice snapshot pulled directly from the invoice ledger for your reference.
-
-Best regards,
-Query Management Team
-"""
+                                print(f"   ✓ PDF generated: {os.path.basename(attachment_path)}")
                             else:
-                                print("   ✗ Document generation failed")
-                                payment_status = invoice_payload.get("Payment Status", "Unknown")
-                                email_body = f"""Dear Requester,
-
-We attempted to generate a payment confirmation for ticket {ticket_id} (invoice {invoice_payload.get('Invoice Number', 'N/A')}), but the PDF export failed.
-
-Current ledger status: {payment_status}.
-
-If you require an officially stamped confirmation, please reach out to your AP/AR partner and they will provide the formal document.
-
-Best regards,
-Query Management Team
-"""
+                                print(f"   ✗ PDF generation failed")
                         else:
-                            print("   ⚠️  Missing invoice data or generator disabled")
-                            fallback_status = invoice_payload.get("Payment Status", "Unknown") if invoice_payload else "Unknown"
-                            email_body = f"""Dear Requester,
+                            print(f"   ⚠️  No invoice data – closing without attachment")
 
-Your request for ticket {ticket_id} has been reviewed.
+                        # Build email body for requestor
+                        requestor_email = get_requestor_email(ticket)
+                        if requestor_email:
+                            if attachment_path:
+                                email_body = (
+                                    f"Dear {_safe_requestor_name(ticket)},\n\n"
+                                    f"Your request for Ticket {ticket_id} has been processed and the ticket is now closed.\n\n"
+                                    f"{ai_response}\n\n"
+                                    f"Please find the requested document attached. It has been generated directly from the invoice ledger.\n\n"
+                                    f"If you need further assistance, please raise a new ticket.\n\n"
+                                    f"Best regards,\nQuery Management Team"
+                                )
+                            else:
+                                inv_status = invoice_payload.get("Payment Status", "N/A") if invoice_payload else "N/A"
+                                email_body = (
+                                    f"Dear {_safe_requestor_name(ticket)},\n\n"
+                                    f"Your request for Ticket {ticket_id} has been reviewed and the ticket is now closed.\n\n"
+                                    f"{ai_response}\n\n"
+                                    f"Note: We were unable to generate the PDF document automatically "
+                                    f"(current ledger status: {inv_status}). "
+                                    f"Please contact your AP/AR partner for an officially stamped copy.\n\n"
+                                    f"Best regards,\nQuery Management Team"
+                                )
 
-{ai_response}
+                            success_db = update_multiple_fields(ticket_id, update_dict)
+                            sent = send_email(
+                                to_email=requestor_email,
+                                subject=f"Ticket {ticket_id} - Closed (Document Attached)" if attachment_path else f"Ticket {ticket_id} - Closed",
+                                body=email_body,
+                                attachment_path=attachment_path
+                            )
+                            if sent:
+                                print(f"   📧 Requestor notified → {requestor_email}")
+                            else:
+                                print(f"   ✗ Requestor email failed")
+                        else:
+                            print(f"   ⚠️  No requestor email found — closing ticket without notification")
+                            success_db = update_multiple_fields(ticket_id, update_dict)
 
-We could not retrieve the invoice details needed to create a PDF automatically (current ledger status: {fallback_status}). Please contact your AP/AR team if you require an official document.
-
-Best regards,
-Query Management Team
-"""
+                        if success_db:
+                            print(f"✓ Ticket {ticket_id} closed: with_document")
+                        else:
+                            print(f"✗ DB update failed")
+                        return f"Ticket {ticket_id}: with_document"
 
                     # ─────────────────────────────────────────────────────
-                    # CATEGORY 1: without_document (Simple response)
+                    # CATEGORY 1: without_document
+                    # Ticket CLOSES. Only the REQUESTOR (Requestor Email ID)
+                    # gets a plain-text resolution email. No one else.
                     # ─────────────────────────────────────────────────────
                     else:  # without_document
-                        print(f"   ✉️  Simple email response")
-                        update_dict["Ticket Status"] = "Closed"
-                        recipient_email = get_submitter_email(ticket)
-                        
-                        email_body = f"""Dear Requester,
+                        print(f"   ✉️  Closing ticket with simple response...")
 
-Your inquiry regarding ticket {ticket_id} has been resolved.
+                        update_dict = {
+                            "Ticket Status":      "Closed",
+                            "Ticket Closed Date": now_str,
+                            "Auto Solved":         AUTO_STATUS_AUTO_RESOLVED,
+                            "AI Response":         ai_response,
+                            "Ticket Updated Date": now_str,
+                        }
 
-{ai_response}
-
-If you need further assistance, please create a new ticket.
-
-Best regards,
-Query Management Team
-"""
-
-                    # Update database
-                    success = update_multiple_fields(ticket_id, update_dict)
-
-                    # Send email to requester (categories 1 & 2)
-                    if success and recipient_email and closure_type != "needs_approval":
-                        status_text = update_dict.get("Ticket Status", ticket.get("Ticket Status", "Open"))
-                        enriched_body = f"{email_body.rstrip()}\n\nTicket status (AI): {status_text}"
-                        sent = send_email(
-                            to_email=recipient_email,
-                            subject=email_subject,
-                            body=enriched_body,
-                            attachment_path=attachment_path
-                        )
-                        if sent:
-                            print(f"   📧 Email sent to {recipient_email}")
+                        requestor_email = get_requestor_email(ticket)
+                        if requestor_email:
+                            email_body = (
+                                f"Dear {_safe_requestor_name(ticket)},\n\n"
+                                f"Your inquiry for Ticket {ticket_id} has been resolved and the ticket is now closed.\n\n"
+                                f"{ai_response}\n\n"
+                                f"If you need further assistance, please raise a new ticket.\n\n"
+                                f"Best regards,\nQuery Management Team"
+                            )
+                            success_db = update_multiple_fields(ticket_id, update_dict)
+                            sent = send_email(
+                                to_email=requestor_email,
+                                subject=f"Ticket {ticket_id} - Resolved",
+                                body=email_body
+                            )
+                            if sent:
+                                print(f"   📧 Requestor notified → {requestor_email}")
+                            else:
+                                print(f"   ✗ Requestor email failed")
                         else:
-                            print(f"   ✗ Email failed")
+                            print(f"   ⚠️  No requestor email found — closing ticket without notification")
+                            success_db = update_multiple_fields(ticket_id, update_dict)
 
-                    if success:
-                        print(f"✓ Ticket {ticket_id} resolved: {closure_type}")
-                    else:
-                        print(f"✗ Update failed")
-
-                    return f"Ticket {ticket_id}: {closure_type}"
+                        if success_db:
+                            print(f"✓ Ticket {ticket_id} closed: without_document")
+                        else:
+                            print(f"✗ DB update failed")
+                        return f"Ticket {ticket_id}: without_document"
 
                 # ═══════════════════════════════════════════════════════
                 # TOOL 3: reassign_ticket_and_notify (Category 4)
+                # Ticket stays OPEN. Two emails go out:
+                #   1. REQUESTOR  (Requestor Email ID) — told their ticket
+                #                  is being handled by a specialist
+                #   2. SPECIALIST (User Name → email lookup) — told they
+                #                  have a new ticket assigned to them
+                # Nobody else receives an email.
                 # ═══════════════════════════════════════════════════════
                 elif func_name == "reassign_ticket_and_notify":
-                    target_team = args["target_team"].upper()
-                    reason = args.get("reason", "Billing specialist required")
-                    ai_response = args.get("ai_response", f"Reassigned to {target_team}")
+                    raw_team    = args["target_team"].upper()   # "AP" or "AR"
+                    reason      = args.get("reason", "Billing specialist required")
+                    ai_response = args.get("ai_response", f"Reassigned to {raw_team} specialist")
 
-                    print(f"🔄 Reassigning to {target_team} billing specialist")
+                    # Normalise team name to match what is stored in Excel ("AP Team" / "AR Team")
+                    df_all    = get_all_tickets_df()
+                    all_teams = df_all["Assigned Team"].dropna().unique().tolist()
+                    matched_team = next(
+                        (t for t in all_teams if raw_team in str(t).upper()),
+                        raw_team
+                    )
 
+                    print(f"🔄 Reassigning to {matched_team} specialist")
+
+                    # Select the specialist with the lowest current open-ticket workload
+                    from utils import load_users
+                    users_list   = load_users()
+                    specialists  = [
+                        u["name"] for u in users_list
+                        if str(u.get("role", "")).lower() == "employee"
+                        and raw_team.lower() in str(u.get("team", "")).lower()
+                    ]
+
+                    specialist_name  = None
+                    specialist_email = None
+
+                    if specialists:
+                        workload = {
+                            name: len(df_all[
+                                (df_all["User Name"].str.strip().str.lower() == name.lower()) &
+                                (df_all["Ticket Status"].str.lower() == "open")
+                            ])
+                            for name in specialists
+                        }
+                        specialist_name  = min(workload, key=workload.get)
+                        specialist_email = get_user_email_by_name(specialist_name)
+                        print(f"   👤 Specialist: {specialist_name} (open load={workload[specialist_name]})")
+                    else:
+                        print(f"   ⚠️  No employees found for team '{raw_team}'")
+
+                    now_str = datetime.now().strftime("%Y-%m-%d")
                     update_dict = {
-                        "Assigned Team": target_team,
-                        "Ticket Status": "Open",
-                        "Ticket Updated Date": datetime.now().strftime("%Y-%m-%d"),
-                        "AI Response": ai_response,
-                        "Auto Solved": False,
+                        "Assigned Team":       matched_team,
+                        "User Name":           specialist_name if specialist_name else ticket.get("User Name", ""),
+                        "Ticket Status":       "Open",
+                        "Ticket Updated Date": now_str,
+                        "AI Response":         ai_response,
+                        "Auto Solved":         False,
                     }
 
                     success = update_multiple_fields(ticket_id, update_dict)
 
                     if success:
-                        # Email requester
-                        requester_email = get_submitter_email(ticket)
-                        if requester_email:
-                            status_text = update_dict.get("Ticket Status", ticket.get("Ticket Status", "Open"))
-                            requester_body = f"""Dear Requester,
+                        requestor_name = _safe_requestor_name(ticket)
 
-Ticket {ticket_id} has been assigned to our {target_team} billing specialist team.
-
-Reason: {reason}
-
-Ticket status (AI): {status_text}
-
-Best regards,
-Query Management System
-"""
+                        # ── EMAIL 1: REQUESTOR ──────────────────────────────
+                        requestor_email = get_requestor_email(ticket)
+                        if requestor_email:
                             send_email(
-                                to_email=requester_email,
-                                subject=f"Ticket {ticket_id} - Assigned to Specialist",
-                                body=requester_body
-                            )
-                            print(f"   📧 Requester notified")
-
-                        # Email assigned employee (instead of manager)
-                        user_name = ticket.get("User Name")
-                        if user_name and str(user_name).lower() not in ["nan", "none", "n/a", "null"]:
-                            assigned_email = get_user_email_by_name(user_name)
-                            if assigned_email:
-                                send_email(
-                                    to_email=assigned_email,
-                                    subject=f"[NEW] Ticket {ticket_id} → {target_team}",
-                                    body=f"""Hello {user_name},
-
-Ticket {ticket_id} assigned to {target_team}.
-
-Request: {description[:250]}...
-
-Reason: {reason}
-
-Please review and take necessary action.
-
-Best regards,
-AI Agent
-"""
+                                to_email=requestor_email,
+                                subject=f"Ticket {ticket_id} - Assigned to {matched_team} Specialist",
+                                body=(
+                                    f"Dear {requestor_name},\n\n"
+                                    f"Your request for Ticket {ticket_id} requires specialist attention.\n\n"
+                                    f"It has been assigned to our {matched_team} billing specialist team who will "
+                                    f"review your request and follow up with you directly.\n\n"
+                                    f"Reason: {reason}\n\n"
+                                    f"Best regards,\nQuery Management System"
                                 )
-                                print(f"   📧 Assigned employee notified: {user_name}")
-                            else:
-                                print(f"   ⚠️ No email found for assigned user: {user_name}")
+                            )
+                            print(f"   📧 Requestor notified → {requestor_email}")
                         else:
-                            print(f"   ⚠️ No assigned user name found in ticket")
+                            print(f"   ⚠️  No requestor email — requestor notification skipped")
 
-                        print(f"✓ Reassigned to {target_team}")
-                        return f"Ticket {ticket_id} reassigned to {target_team}"
+                        # ── EMAIL 2: SPECIALIST ─────────────────────────────
+                        if specialist_name and specialist_email:
+                            send_email(
+                                to_email=specialist_email,
+                                subject=f"[NEW ASSIGNMENT] Ticket {ticket_id} – Action Required",
+                                body=(
+                                    f"Hello {specialist_name},\n\n"
+                                    f"Ticket {ticket_id} has been assigned to you for specialist handling.\n\n"
+                                    f"Requestor: {requestor_name}\n"
+                                    f"Team: {matched_team}\n\n"
+                                    f"Request summary:\n{description[:400]}{'...' if len(description) > 400 else ''}\n\n"
+                                    f"Reason for assignment: {reason}\n\n"
+                                    f"Please review and take the necessary action.\n\n"
+                                    f"Best regards,\nQuery Management System"
+                                )
+                            )
+                            print(f"   📧 Specialist notified → {specialist_name} ({specialist_email})")
+                        else:
+                            print(f"   ⚠️  No specialist email — specialist notification skipped")
+
+                        print(f"✓ Ticket {ticket_id} reassigned → {matched_team} / {specialist_name or 'unassigned'}")
+                        return f"Ticket {ticket_id} reassigned to {matched_team} specialist: {specialist_name or 'unassigned'}"
                     else:
-                        print(f"✗ Reassignment failed")
+                        print(f"✗ Reassignment DB update failed")
                         return "Reassignment failed"
 
         return "Max turns reached without resolution"
